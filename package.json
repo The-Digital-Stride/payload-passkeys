@@ -58,7 +58,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix && prettier --write .",
     "prepublishOnly": "pnpm build",
-    "release": "changeset publish",
+    "release": "pnpm build && node scripts/publish.mjs",
     "test": "pnpm test:unit && pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
     "test:int": "vitest run --project int",

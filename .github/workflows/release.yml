@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  cancel-in-progress: false
+  group: release
+
+jobs:
+  release:
+    # A protected environment with a required reviewer (Task 44): nothing publishes, and no
+    # version PR is opened, without a person approving the run. npm's trusted publisher entry
+    # names this repository, the workflow file release.yml and this environment. There is no
+    # npm token anywhere: `npm publish` authenticates with the job's OIDC token.
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # No persisted credentials: changesets/action pushes the version commit and the tags
+      # through the GitHub API with its own token (push-with-git-cli is false), not with git.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # setup-node gets no registry-url: that writes an .npmrc expecting NODE_AUTH_TOKEN, which
+      # trusted publishing doesn't use.
+      - uses: ./.github/actions/setup
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10. 11.21.1, not 11.21.2:
+      # 11.21.2 was two days old on 2026-11-06, inside the seven-day cooldown (review L9).
+      - name: npm with trusted publishing
+        run: npm install -g npm@11.21.1
+      - run: npm audit signatures
+      - run: pnpm test:unit
+      # changesets/action v2 input names (publish-script, not v1's publish). With no pending
+      # changesets it runs the publish script, which is a no-op when the version is on npm.
+      - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          commit-message: 'chore: release'
+          github-token: ${{ github.token }}
+          pr-title: 'chore: release'
+          publish-script: pnpm release
+          version-script: pnpm changeset version
