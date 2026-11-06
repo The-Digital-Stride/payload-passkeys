@@ -106,3 +106,13 @@ describe('delete (review M6)', () => {
     ).toBe(1)
   })
 })
+
+describe('deleting a user (single collection)', () => {
+  it('deletes the user and their passkeys', async () => {
+    const alice = await createUser(payload, 'users')
+    const row = await insertPasskey(payload, { collection: 'users', userId: alice.id })
+    await payload.delete({ collection: 'users', id: alice.id })
+    expect((await payload.count({ collection: 'users', where: { id: { equals: alice.id } } })).totalDocs).toBe(0)
+    expect((await payload.count({ collection: 'passkeys', where: { id: { equals: row.id } } })).totalDocs).toBe(0)
+  })
+})

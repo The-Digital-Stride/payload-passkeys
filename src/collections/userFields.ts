@@ -1,4 +1,4 @@
-import type { CollectionAfterDeleteHook, CollectionConfig, Field } from 'payload'
+import type { CollectionBeforeDeleteHook, CollectionConfig, Field } from 'payload'
 
 import type { ResolvedOptions } from '../server/options.js'
 
@@ -15,28 +15,27 @@ export const userHandleField: Field = {
   admin: { disabled: true, hidden: true },
 }
 
-const removePasskeysOfDeletedUser =
-  (options: ResolvedOptions, collectionSlug: string): CollectionAfterDeleteHook =>
+/**
+ * Runs in beforeDelete, inside the delete's transaction and after Payload's access check: on SQL
+ * the user's row can't go first, because passkeys.user_id is NOT NULL (single collection) and the
+ * polymorphic _rels rows cascade away before an afterDelete hook could find them. Errors propagate
+ * so the user is never deleted with passkeys left behind.
+ */
+const removePasskeysOfUser =
+  (options: ResolvedOptions, collectionSlug: string): CollectionBeforeDeleteHook =>
   async ({ id, req }) => {
-    try {
-      await req.payload.db.deleteMany({
-        collection: options.slugs.passkeys,
-        req,
-        where: ownPasskeysWhere(options, collectionSlug, id),
-      })
-      await req.payload.db.deleteMany({
-        collection: options.slugs.challenges,
-        req,
-        where: {
-          and: [{ collection: { equals: collectionSlug } }, { userId: { equals: String(id) } }],
-        },
-      })
-    } catch (error) {
-      req.payload.logger.error({
-        err: error,
-        msg: 'passkeys: failed to remove the passkeys of a deleted user',
-      })
-    }
+    await req.payload.db.deleteMany({
+      collection: options.slugs.passkeys,
+      req,
+      where: ownPasskeysWhere(options, collectionSlug, id),
+    })
+    await req.payload.db.deleteMany({
+      collection: options.slugs.challenges,
+      req,
+      where: {
+        and: [{ collection: { equals: collectionSlug } }, { userId: { equals: String(id) } }],
+      },
+    })
   }
 
 export const withPasskeyFields = (
@@ -48,9 +47,9 @@ export const withPasskeyFields = (
   fields: [...collection.fields, userHandleField, ...extraFields],
   hooks: {
     ...collection.hooks,
-    afterDelete: [
-      ...(collection.hooks?.afterDelete ?? []),
-      removePasskeysOfDeletedUser(options, collection.slug),
+    beforeDelete: [
+      ...(collection.hooks?.beforeDelete ?? []),
+      removePasskeysOfUser(options, collection.slug),
     ],
   },
 })

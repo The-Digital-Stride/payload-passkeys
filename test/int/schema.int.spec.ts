@@ -92,12 +92,10 @@ describe('user fields', () => {
 
   it("deletes a user's passkeys with the user", async () => {
     const alice = await createUser(payload, 'users')
-    await insertPasskey(payload, { collection: 'users', userId: alice.id })
+    const row = await insertPasskey(payload, { collection: 'users', userId: alice.id })
     await payload.delete({ collection: 'users', id: alice.id })
-    const left = await payload.count({
-      collection: 'passkeys',
-      where: { collection: { equals: 'users' }, 'user.value': { equals: alice.id } },
-    })
+    // Count by the row's own ID: on SQL the relationship rows are gone once the user is.
+    const left = await payload.count({ collection: 'passkeys', where: { id: { equals: row.id } } })
     expect(left.totalDocs).toBe(0)
   })
 })
