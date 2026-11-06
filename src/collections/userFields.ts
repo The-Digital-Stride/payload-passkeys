@@ -4,7 +4,7 @@ import type { ResolvedOptions } from '../server/options.js'
 
 import { logEvent } from '../server/logging.js'
 import { ownPasskeysWhere } from './passkeys.js'
-import { USER_HANDLE_FIELD } from '../shared/constants.js'
+import { MANAGER_FIELD, PACKAGE_NAME, USER_HANDLE_FIELD } from '../shared/constants.js'
 
 const never = () => false
 
@@ -49,13 +49,34 @@ const removePasskeysOfUser =
     })
   }
 
+/**
+ * The Passkeys section. The RSC wrapper renders it on the signed-in user's own document only
+ * (Verified facts Q2); a `ui` field stores nothing, so adding or removing it changes no schema.
+ */
+export const managerField = (collectionSlug: string): Field => ({
+  name: MANAGER_FIELD,
+  type: 'ui',
+  admin: {
+    components: {
+      Field: {
+        clientProps: { collectionSlug },
+        path: `${PACKAGE_NAME}/rsc#PasskeysManagerField`,
+      },
+    },
+    disableListColumn: true,
+  },
+})
+
 export const withPasskeyFields = (
   collection: CollectionConfig,
   options: ResolvedOptions,
-  extraFields: Field[] = [],
 ): CollectionConfig => ({
   ...collection,
-  fields: [...collection.fields, userHandleField, ...extraFields],
+  fields: [
+    ...collection.fields,
+    userHandleField,
+    ...(options.enabled ? [managerField(collection.slug)] : []),
+  ],
   hooks: {
     ...collection.hooks,
     beforeDelete: [

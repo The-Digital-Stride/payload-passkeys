@@ -68,6 +68,9 @@ export const buildDevConfig = ({
       // Payload spawns `payload generate:types` on every init outside production; under Vitest
       // that child outlives the run and spins, one per test file.
       autoGenerate: !process.env.VITEST,
+      // No `declare module 'payload'` block: the plugin's own source is type-checked in this
+      // project and must compile against any host, not against this app's collection slugs.
+      declare: false,
       outputFile: path.resolve(dirname, 'payload-types.ts'),
     },
   } satisfies Config)

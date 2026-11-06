@@ -46,3 +46,33 @@ describe('admin components', () => {
     expect(config.admin?.components).toEqual({ afterLogin: ['/host#AfterLogin'] })
   })
 })
+
+describe('the Passkeys section field', () => {
+  const fieldsOf = (config: Config, slug: string) =>
+    (config.collections ?? []).find((c) => c.slug === slug)?.fields ?? []
+
+  it('adds a ui field to each passkeys collection, rendered by the RSC wrapper', () => {
+    const config = passkeysPlugin({ collections: ['users'] })(base())
+    expect(fieldsOf(config, 'users')).toContainEqual({
+      name: 'passkeysManager',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: {
+            clientProps: { collectionSlug: 'users' },
+            path: '@the-digital-stride/payload-passkeys/rsc#PasskeysManagerField',
+          },
+        },
+        disableListColumn: true,
+      },
+    })
+    expect(fieldsOf(config, 'customers').map((f) => ('name' in f ? f.name : null))).toEqual([])
+  })
+
+  it('leaves it out when disabled, keeping the user handle', () => {
+    const names = fieldsOf(passkeysPlugin({ enabled: false })(base()), 'users').map((f) =>
+      'name' in f ? f.name : null,
+    )
+    expect(names).toEqual(['passkeyUserHandle'])
+  })
+})
