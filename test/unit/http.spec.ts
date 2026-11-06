@@ -54,6 +54,28 @@ describe('readJsonBody (review M4)', () => {
       readJsonBody(req({ body: '{}', headers: { ...json, 'Content-Length': String(65 * 1024) } })),
     ).rejects.toMatchObject({ status: 413 })
   })
+
+  it('stops reading a body with no Content-Length once it passes the limit', async () => {
+    let sent = 0
+    const chunk = new TextEncoder().encode(`{"a":"${'x'.repeat(16 * 1024)}`)
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += chunk.byteLength
+        controller.enqueue(chunk)
+        if (sent > 1024 * 1024) controller.close()
+      },
+    })
+    const request = new Request('http://localhost:3000/api/users/passkeys/x', {
+      body,
+      duplex: 'half',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    } as RequestInit)
+    expect(request.headers.get('Content-Length')).toBeNull()
+    const fake = Object.assign(request, { payload: { config: {} }, user: null }) as never
+    await expect(readJsonBody(fake)).rejects.toMatchObject({ status: 413 })
+    expect(sent).toBeLessThan(256 * 1024)
+  })
 })
 
 describe('originAllowed (review M4)', () => {

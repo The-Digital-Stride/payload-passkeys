@@ -1,6 +1,6 @@
 import type { Endpoint, PayloadRequest, TypedUser } from 'payload'
 
-import { addDataAndFileToRequest, headersWithCors } from 'payload'
+import { headersWithCors } from 'payload'
 import { parseCookies } from 'payload/shared'
 
 import type { PasskeysErrorCode } from '../shared/constants.js'
@@ -38,22 +38,56 @@ export const json = (
 }
 
 /**
+ * The body as text, read in chunks and abandoned past MAX_BODY_BYTES. Content-Length is only a
+ * hint: a chunked request has none, and Payload's own parser reads the whole body.
+ */
+const readBoundedText = async (req: PayloadRequest): Promise<string> => {
+  const stream = req.body
+  if (!stream) return ''
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined)
+      throw new EndpointError(413, 'bad_request')
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+}
+
+/**
  * The JSON body, or a refusal. Exactly `application/json` before any `;`, the same test Payload's
  * parser uses, so multipart and its `_payload` field never reach an endpoint (review M4).
  */
 export const readJsonBody = async (req: PayloadRequest): Promise<Record<string, unknown>> => {
   const [type = ''] = (req.headers.get('Content-Type') ?? '').split(';', 1)
   if (type.trim() !== 'application/json') throw new EndpointError(415, 'unsupported_media_type')
-  if (Number(req.headers.get('Content-Length') ?? 0) > MAX_BODY_BYTES)
+  if (Number(req.headers.get('Content-Length') ?? 0) > MAX_BODY_BYTES) {
     throw new EndpointError(413, 'bad_request')
+  }
+  let data: unknown
   try {
-    await addDataAndFileToRequest(req)
-  } catch {
+    const text = await readBoundedText(req)
+    data = text.trim() ? JSON.parse(text) : {}
+  } catch (error) {
+    if (error instanceof EndpointError) throw error
     throw new EndpointError(400, 'bad_request')
   }
-  const data: unknown = req.data ?? {}
-  if (!data || typeof data !== 'object' || Array.isArray(data))
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new EndpointError(400, 'bad_request')
+  }
+  req.data = data as Record<string, unknown>
   return data as Record<string, unknown>
 }
 
