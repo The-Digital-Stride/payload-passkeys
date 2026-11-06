@@ -1,6 +1,6 @@
 # Payload passkeys plugin: brief and design
 
-Status: **Agreed design, not yet built** (2026-11-06). The implementation plans are in `docs/plans/`; the evidence behind every decision is in `docs/research/` (`external.md`: standards, libraries, prior art, other CMSs; `payload-internals.md`: Payload 3.90.2 source, with file and line references; `security-review.md`: adversarial review of this design, every finding accepted and folded in below, tagged H1–H4, M1–M9, L1–L9).
+Status: **Agreed design; v1 built** on branch `v1-passkey-sign-in` (2026-11-06), not yet on GitHub or npm. Where the code differs from what follows, the code is the truth and section 13 records the difference; the sections below have been brought in line with it. The implementation plans are in `docs/plans/`; the evidence behind every decision is in `docs/research/` (`external.md`: standards, libraries, prior art, other CMSs; `payload-internals.md`: Payload 3.90.2 source, with file and line references; `security-review.md`: adversarial review of this design, every finding accepted and folded in below, tagged H1–H4, M1–M9, L1–L9).
 
 ## 1. Brief
 
@@ -11,7 +11,7 @@ A public, open-source Payload CMS 3 plugin that lets admins sign in to the Paylo
 | Package | `@the-digital-stride/payload-passkeys` (npm scope must be lowercase; the npm organisation `the-digital-stride` still has to be claimed) |
 | Repository | `The-Digital-Stride/payload-passkeys` on GitHub (not created yet; this repo is local only) |
 | Licence | MIT |
-| Supports | Payload `>=3.90.0 <4`, Node `>=22`, MongoDB, Postgres and SQLite adapters. Payload 4 once stable, with code written to v4's import rules now |
+| Supports | Payload `>=3.90.0 <4`, Node `>=22.12` (Payload 3.92 and later need Node `^22.23.4 \|\| >=24.22.1` themselves; section 7), MongoDB, Postgres and SQLite adapters. Payload 4 once stable, with code written to v4's import rules now |
 | First adopter | ianhancock.co.uk (Payload 3.90.2, MongoDB, Vercel), then The Digital Stride's client sites |
 
 ### Decisions from the interview (2026-11-06)
@@ -83,19 +83,20 @@ It warns at boot when `csrf` is empty, and in production when `rateLimit` is lef
 **Collections** (written only through the Local API, so every adapter behaves the same):
 
 - `passkeys`: `admin.hidden`, `lockDocuments: false`, `graphQL: false`, timestamps.
-  - Fields: `user` (relationship to the auth collection(s), required, indexed, `maxDepth: 0`), `collection` (text, required: the auth collection's slug, checked before anything else, H3), `userHandle` (text: the WebAuthn user ID this passkey was made with, L4), `credentialId` (text, unique, base64url), `publicKey` (text, base64url COSE), `counter` (number), `transports` (json), `deviceType` (`singleDevice` | `multiDevice`), `backedUp` (checkbox), `aaguid` (text), `rpID` (text), `name` (text, max 64), `lastUsedAt` (date).
-  - Access: `read` only your own, matching both collection and ID (`and: [{ collection: { equals: req.user.collection } }, { 'user.value' / user: { equals: req.user.id } }]`, H3); `create`, `update` and `delete` false through the API, so every removal goes through the guarded `/passkeys/delete` endpoint (M4). The plugin's endpoints write with `overrideAccess: true`. `publicKey`, `counter` and `userHandle` are never returned by the API (field `read: () => false`).
+  - Fields: `user` (relationship to the auth collection(s), required, indexed, `maxDepth: 0`), `authCollection` (text, required, indexed: the auth collection's slug, checked before anything else, H3; not `collection`, which Mongoose reserves), `userHandle` (text: the WebAuthn user ID this passkey was made with, L4), `credentialId` (text, unique, base64url), `publicKey` (text, base64url COSE), `counter` (number), `transports` (json), `deviceType` (`singleDevice` | `multiDevice`), `backedUp` (checkbox), `aaguid` (text), `rpID` (text), `name` (text, max 64), `lastUsedAt` (date).
+  - Access: `read` only your own, matching both collection and ID (`and: [{ authCollection: { equals: req.user.collection } }, { user: { equals: req.user.id } }]` with one collection, or `'user.relationTo'` and `'user.value'` with several, H3); `create`, `update` and `delete` false through the API, so every removal goes through the guarded `/passkeys/delete` endpoint (M4). The plugin's endpoints write with `overrideAccess: true`. `publicKey`, `counter` and `userHandle` are never returned by the API (field `read: () => false`).
   - A separate collection, not fields on the user, because Payload's login and refresh write back the whole raw user document and would race the counter and `lastUsedAt`.
 - `passkey-challenges`: `admin.hidden`, `graphQL: false`, every API access false.
-  - Fields: `challenge` (text, unique), `type` (`registration` | `authentication`), `collection` (text), `userId` (text, optional; a relationship can't span collections), `userHandle` (text, optional), `browserKeyHash` (text), `expiresAt` (date, indexed).
+  - Fields: `challenge` (text, unique), `type` (`registration` | `authentication`), `authCollection` (text), `userId` (text, optional; a relationship can't span collections), `userHandle` (text, optional), `browserKeyHash` (text), `expiresAt` (date, indexed).
 - `passkey-challenge-uses`: `admin.hidden`, `graphQL: false`, every API access false. One field, `challenge` (text, unique), plus `expiresAt`. Consuming a challenge is a **create** here: a unique-constraint error means the challenge was already used. A unique insert is atomic on every adapter, whereas find-then-delete is not on Postgres, SQLite or the Local API (M3). Pruned with the challenges.
 
 **Fields on each auth collection:**
 
 - `passkeyUserHandle`: text, hidden, all field access false, **not unique** (it is never queried, and Mongo's sparse unique index collides on explicit nulls; 512 random bits). 64 random bytes (base64url), created in `register/options` when the user has none, and copied onto each passkey row, so a whole-document write-back racing the first registration can't orphan a passkey (L4). It is the WebAuthn `user.id`, so the email never reaches an authenticator.
 - `passkeysManager`: a `ui` field rendering the Passkeys section on the Account page and the user edit view (own account only).
+- A `beforeDelete` hook that removes the user's passkeys and pending challenges inside the delete's transaction. Not `afterDelete`: on SQL the user's row can't go first (`passkeys.user_id` is `NOT NULL` with one collection, and the polymorphic `_rels` rows cascade away before an `afterDelete` hook could find them). Errors propagate, so a user is never deleted with passkeys left behind. The reverse can happen: Payload checks the document lock after `beforeDelete`, so on an adapter without transactions (SQLite by default, a standalone MongoDB) a delete that the lock then refuses has already removed the passkeys. That fails safe (the password still works) and is logged as `passkeys.removed` with `reason: user_deleted`.
 
-**Endpoints** (collection endpoints on each auth collection, so `/api/<slug>/passkeys/...`; all POST, JSON body read with `addDataAndFileToRequest`):
+**Endpoints** (collection endpoints on each auth collection, so `/api/<slug>/passkeys/...`; all POST, JSON body read by the plugin's own bounded reader, `readJsonBody` in `src/server/http.ts`: JSON only, at most 64 KB whether or not `Content-Length` is sent, and it sets `req.data` and `req.json` so hooks still work):
 
 | Path | Auth | Purpose |
 |---|---|---|
@@ -134,10 +135,10 @@ The only module that touches Payload's undocumented exports. After a verified as
 2. Check the user exists and, when `auth.verify` is on, is verified. A password lockout (`lockUntil`) does **not** block a passkey (D15, M5): log `passkeys.signed_in_while_locked` and carry on.
 3. Inside a transaction where the adapter supports one: `addSessionToUser` (from `payload/shared`) returns `sid` when `useSessions` is on.
 4. `getFieldsToSign({ collectionConfig, email, sid, user })`.
-5. Run the collection's `beforeLogin` hooks (core runs them only inside `loginOperation`); a throw revokes the new session and fails the sign-in, so host rules that block logins still apply.
+5. Run the collection's `beforeLogin` hooks (core runs them only inside `loginOperation`), then the plugin's `onSignIn` option; a throw from either revokes the new session and fails the sign-in, so host rules that block logins still apply.
 6. `jwtSign({ fieldsToSign, secret: payload.secret, tokenExpiration })`, which carries the current `authVersion` claim (3.90.0 rejects tokens without it).
-7. Run `afterLogin` hooks with `{ token, user }`, then the plugin's `onSignIn` option. Payload's `beforeOperation`/`afterOperation` hooks for `login` do not run here; the README says so and points to `onSignIn` (L8).
-8. `resetLoginAttempts` when `maxLoginAttempts > 0` (a passkey proves the account holder). In the code this runs before the `beforeLogin` hooks, as core does.
+7. Run `afterLogin` hooks with `{ token, user }`. (`onSignIn` has already run, in step 5, so it can refuse before any token exists.) Payload's `beforeOperation`/`afterOperation` hooks for `login` do not run here; the README says so and points to `onSignIn` (L8).
+8. `resetLoginAttempts` when `maxLoginAttempts > 0` (a passkey proves the account holder); this also clears `lockUntil`. In the code this runs before the `beforeLogin` hooks, as core does, so the order is 3, 4, 8, 5, 6, 7, 9.
 9. Return the cookie from `generatePayloadCookie({ collectionAuthConfig, cookiePrefix, token })` and the body shape the admin expects (`{ exp, token?, user }`, honouring `removeTokenFromResponses`). The `user` in the body is re-read with `payload.findByID({ overrideAccess: false, user, depth: auth.depth })`, exactly as `/me` builds it, so field read access applies and no internal field is returned (M1).
 
 Because the result is an ordinary Payload session, logout, "log out of all sessions", `autoRefresh`, `/me`, password-change revocation and every API keep working with no plugin code. A contract test runs this module against every supported Payload minor and the latest release nightly, so a change to the helpers or the claim shape fails CI instead of failing silently in production. When Payload 4 ships `createAuthToken`, steps 3, 4 and 6 move onto it behind the same function.
@@ -160,17 +161,17 @@ Because the result is an ordinary Payload session, logout, "log out of all sessi
 1. `SignInWithPasskey` calls `status`; if the host does not match the RP ID it renders nothing but a short note (section 5). It also feature-detects WebAuthn and hides itself on unsupported browsers.
 2. Press: `sign-in/options` returns a challenge with empty `allowCredentials` (discoverable credentials, so no email is asked for and nothing about accounts is revealed) and `userVerification: 'required'`. One outstanding sign-in challenge per browser key (re-issuing replaces it), and a global cap on outstanding anonymous challenges (default 500, then 429; password sign-in is unaffected) (M2).
 3. `navigator.credentials.get()`; the response goes to `sign-in/verify`.
-4. The server consumes the challenge as in 4.1 and finds the passkey by credential ID. Before anything else it requires `passkey.collection` to equal this endpoint's collection: on Postgres and SQLite, `users` 7 and `customers` 7 can both exist, so an ID alone proves nothing (H3). It then checks the user still exists, that the assertion's `userHandle` matches the passkey row's `userHandle` (L4), and calls `verifyAuthenticationResponse` (`requireUserVerification: true`). On the unknown-credential path it verifies a fixed dummy assertion, so timing doesn't reveal which credentials exist (L6).
+4. The server consumes the challenge as in 4.1 and finds the passkey by credential ID. Before anything else it requires `passkey.authCollection` to equal this endpoint's collection: on Postgres and SQLite, `users` 7 and `customers` 7 can both exist, so an ID alone proves nothing (H3). It then checks the user still exists, that the assertion's `userHandle` matches the passkey row's `userHandle` (L4), and calls `verifyAuthenticationResponse` (`requireUserVerification: true`). On the unknown-credential path it verifies a fixed dummy assertion, so timing doesn't reveal which credentials exist (L6).
 5. Counter and flags (M7). SimpleWebAuthn throws on any non-increasing counter where either value is non-zero, so the plugin applies its own policy around it:
    - refuse when the passkey is device-bound (`deviceType: 'singleDevice'`, BE=0) and the counter didn't increase;
    - otherwise log `passkeys.counter_regression` and carry on, never writing a lower counter;
    - refuse when the reported device type differs from the stored one (BE must never change);
    - update `backedUp` when the backup state changes.
 6. Update `counter` and `lastUsedAt`, then `mintSession` (section 3).
-7. The client sets the user through `useAuth().setUser` and navigates to the `redirect` search parameter. It runs that through Payload's own `getSafeRedirect` (from `payload/shared`) and requires the result to sit under the admin route, otherwise it goes to the admin root, so there is no open redirect (L5).
-8. An assertion naming an unknown credential gets a generic failure and the client calls `signalUnknownCredential`, so the stale passkey disappears from the user's password manager.
+7. The client sets the user through `useAuth().setUser` and navigates to the `redirect` search parameter. It runs that through Payload's own `getSafeRedirect` (from `payload/shared`) and requires the result to sit under the admin route, otherwise it goes to the admin root, so there is no open redirect (L5). It also resolves dot segments (including `%2e%2e`) and then refuses a path that starts with `//` or `/\`, because `getSafeRedirect` checks for those only before resolution and `/.//evil.test` resolves to `//evil.test` (`safeAdminRedirect` in `src/shared/redirect.ts`).
+8. An assertion naming an unknown credential gets the generic failure plus `unknownCredential: true`, and the client calls `signalUnknownCredential`, so the stale passkey disappears from the user's password manager.
 
-Every failure the user sees is one generic message ("That passkey couldn't be used. Try again or sign in with your password."); the reason goes to the log.
+Every failure the user sees is one generic message ("That passkey couldn't be used. Try again or sign in with your password."), and every failed verification is the same 400 `{ error: 'sign_in_failed' }`; the reason goes to the log. The one exception is the `unknownCredential: true` hint in step 8, which the browser needs before it can drop the stale passkey. It reveals only that a credential ID the client itself presented is not stored, never which accounts exist or have passkeys, and the dummy verification keeps the timing the same.
 
 ### 4.3 Managing passkeys
 
@@ -201,7 +202,7 @@ After a password sign-in, if the user has no passkey, the browser supports platf
 - **Multiple auth collections:** every passkey row carries its collection, and every lookup and access check matches collection and ID together (H3).
 - **No internal fields leave the server:** a contract test asserts that no plugin response contains `hash`, `salt`, `sessions`, `apiKey`, `passkeyUserHandle` or `userHandle`, the one exception being `status`'s `signalUserId` for the signed-in owner (M1).
 - **User verification is required** at registration and sign-in: a passkey always means the device plus biometrics or the device PIN.
-- **Enumeration:** discoverable sign-in never names an account; all sign-in failures look the same and take similar time.
+- **Enumeration:** discoverable sign-in never names an account; all sign-in failures look the same and take similar time, except that an unknown credential ID adds `unknownCredential: true` (section 4.2 step 8), which tells the client only that the credential it presented is not stored.
 - **Account rules respected:** locked accounts, unverified accounts, the host's `beforeLogin` hooks, Payload's `access.admin`-style checks through the minted session.
 - **Persistence attacks:** adding a passkey needs a fresh session or the password (4.1).
 - **Rate limiting:** Payload has no IP limiter, and serverless has no shared memory. The `rateLimit` option is called on every endpoint with an action and a key (IP, user). The README:
@@ -214,14 +215,14 @@ After a password sign-in, if the user has no passkey, the browser supports platf
   - a global cap on anonymous challenges (default 500);
   - pruning of expired challenges and uses on every challenge write;
   - a boot warning in production when `rateLimit` is left at its default (M2).
-- **Logging:** `passkeys.registered`, `.removed`, `.renamed`, `.signed_in`, `.signed_in_while_locked`, `.sign_in_failed` (with reason), `.counter_regression`, `.unknown_credential`, `.reauth_required`. Each line carries the collection, user ID, credential ID prefix and AAGUID. Never challenges, signatures, public keys or emails.
+- **Logging:** `passkeys.registered`, `.registration_failed` (with reason, including `duplicate_credential_race` when the unique index on `credentialId` refuses a parallel insert), `.removed`, `.renamed`, `.signed_in`, `.signed_in_while_locked`, `.sign_in_failed` (with reason), `.counter_regression`, `.unknown_credential`, `.reauth_required`, `.reauthenticated`, `.reauth_failed`, and `.reset` from the recovery command (`src/server/logging.ts`). Each line carries the collection, user ID, credential ID prefix and AAGUID. Never challenges, signatures, public keys or emails.
 - **Privacy (UK GDPR):** an IP address is personal data. `logging.ip` is `'truncated'` by default (/24 for IPv4, /48 for IPv6), with `'none'` and `'full'` as the alternatives, and no IP is logged on a successful sign-in. The README names the lawful basis (legitimate interest in security) and says retention is the host's log retention (L1).
 - **Client bundle:** no server module reachable from client entry points (test-enforced), no secrets in client props.
 - **Open redirect:** post-sign-in redirects are restricted to same-origin admin paths.
-- **Recovery:** the password and forgot-password always remain. A Payload `config.bin` script, run in the host project as `pnpm payload passkeys:reset --collection users --email x`, removes a user's passkeys through the Local API for a locked-out site owner, and always empties their sessions too (M6).
+- **Recovery:** the password and forgot-password always remain. A Payload `config.bin` script, run in the host project as `pnpm payload passkeys:reset --collection users --email x` (or `--id <id>`), removes a user's passkeys and pending registration challenges for a locked-out site owner, and always empties their sessions too (M6). It is registered even when `enabled: false`.
 - **Supply chain (L9):**
   - SimpleWebAuthn is pinned to exact versions and bumped by hand.
-  - pnpm `minimumReleaseAge` is 7 days.
+  - pnpm `minimumReleaseAge` is 7 days (in `pnpm-workspace.yaml`).
   - A test asserts that the `./client` entry's dependency graph contains only `@simplewebauthn/browser` and `@payloadcms/ui`.
 
 ## 7. Compatibility
@@ -229,7 +230,8 @@ After a password sign-in, if the user has no passkey, the browser supports platf
 - Peer dependencies: `payload`, `@payloadcms/ui` (`>=3.90.0 <4`), `react`, `react-dom`, `next`. `@payloadcms/next` is not needed in v1 (nothing imports it). Dependencies: the two SimpleWebAuthn packages only.
 - `useAuth()` changed in 3.91 (`tokenExpirationMs` replaced by `authSession.expiresAt`); the plugin feature-detects both.
 - `@payloadcms/ui` 3.x exports no router hooks, so `useRouter` and `useSearchParams` come from `next/navigation.js` in exactly one module (`src/components/shared/navigation.ts`); the v4 port changes that file. Everything else follows v4's import rules already.
-- Postgres and SQLite hosts must run `payload migrate:create` and `payload migrate` after installing (the plugin adds three collections and two fields); the README says so, and the dev app ships example migrations to prove they generate cleanly. MongoDB needs nothing.
+- Node: `engines.node` is `>=22.12.0`, the plugin's own floor (SimpleWebAuthn 14 needs Node 22). Payload 3.92 and later declare `^22.23.4 || >=24.22.1` in their own `engines`; that is the host's constraint, so the plugin doesn't repeat it. CI's `22` resolves to the newest 22.x (22.23.4 on 2026-11-06), which satisfies both.
+- Postgres and SQLite hosts must run `payload migrate:create` and `payload migrate` after installing (the plugin adds three collections and two fields, one of them a `ui` field that stores nothing); the README says so, and the dev app ships example migrations to prove they generate cleanly. MongoDB needs nothing.
 - Every host must run `payload generate:importmap` and `generate:types` after installing.
 - Multiple auth collections: each configured collection gets its own endpoints and fields; `passkeys.user` is polymorphic when more than one is configured.
 
@@ -249,11 +251,12 @@ All admin text goes through Payload's i18n (`config.i18n.translations` merged un
 
 - Layout from Payload's plugin template: `src/` (`index.ts`, `exports/client.ts`, `exports/rsc.ts`, `server/`, `components/`, `collections/`, `translations/`), `dev/` (a Next app with Mongo, SQLite and Postgres configs selected by env), `test/`.
 - ESM only, built with swc and type declarations from tsc; `exports` for `.`, `./client`, `./rsc`; `sideEffects` set so CSS is kept.
-- Changesets for versioning and the changelog; publishing is `npm publish` (npm ≥11.5.1, upgraded in the job), because npm documents OIDC trusted publishing for `npm publish` only.
+- Changesets for versioning and the changelog; publishing is `npm publish` (npm ≥11.5.1, upgraded in the job), because npm documents OIDC trusted publishing for `npm publish` only. `npm publish` run in the repository ignores `publishConfig.exports` (only pnpm applies it) and would ship a manifest pointing at `src/`, so `scripts/publish.mjs` publishes the tarball `pnpm pack` makes, after `scripts/check-package.mjs` has checked that same tarball.
+- pnpm settings (`minimumReleaseAge`, `allowBuilds`, `engineStrict`, `saveExact`, `shamefullyHoist`) live in `pnpm-workspace.yaml`: pnpm 11 reads only auth settings from `.npmrc`.
 - GitHub Actions: lint, types, unit, integration matrix (Payload minors × adapters), e2e, nightly latest/beta contract run; CodeQL; Dependabot (grouped, weekly).
 - Release, hardened as in review L9:
   - npm **trusted publishing** from a protected `release` workflow (OIDC, no npm token stored), with provenance;
-  - signed tags;
+  - signed tags (**open**: `changesets/action` creates lightweight tags through the GitHub API, so the workflow does not meet this; `docs/release-setup.md` lists the options);
   - branch protection with required reviews and checks;
   - every GitHub Action pinned to a commit SHA;
   - `CODEOWNERS` on `.github/workflows/`;
@@ -294,3 +297,32 @@ Goal: a signed-in admin left idle is locked after 15 minutes (configurable), and
 | Hosts relying on `beforeOperation`/`afterOperation` for `login` (audit, geo rules) | Documented gap; `onSignIn` option (L8) |
 | Hosts with `useSessions: false` can't use the plugin | Refused at config time with a clear message (D14); revisit if asked |
 | npm organisation name not yet claimed | Release-plan step; fall back to `@thedigitalstride` if taken |
+
+### Accepted risks (2026-11-06)
+
+Found while building v1 and accepted for now. Each is documented in the README where a host needs to know.
+
+| Risk | Why it is accepted | Status |
+|---|---|---|
+| **Parallel clone counters.** Two sign-ins with a cloned passkey can race the counter update: Payload's SQL `updateMany` gives no way to lock the row or compare-and-set the counter. And whoever holds a clone can report any higher counter anyway. | The counter policy (M7) detects careless clones only, and never was a defence against a deliberate one. User verification and device-bound storage are the real protections. | Accepted |
+| **Removing a passkey needs a cookie session, not a fresh one.** A stolen session could remove the owner's passkeys. | It removes a sign-in method, not the password, so the owner keeps access. The case that matters, a planted passkey, is covered by "Also sign out everywhere else" (M6), ticked by default when the passkey was used in the last 24 hours. | Accepted |
+| **Anonymous challenge cap as a denial of service (M2).** A flood of `sign-in/options` requests fills the site-wide cap (default 500), and passkey sign-in answers 429 until challenges expire (5 minutes). | Password sign-in is unaffected, and the cap is what stops the same flood filling the database. The `rateLimit` hook is the mitigation, and the plugin warns at boot in production until one is set. | Accepted |
+| **MongoDB without its unique indexes.** If the plugin can't build the unique indexes at boot (no `createIndex` privilege, or duplicate values), it logs an error and keeps running, and single use is then unprotected on that database. | Failing closed would take passkey sign-in (or the whole boot) down for a permission problem the log names. | **Open:** decide whether to fail closed |
+
+## 13. Implementation notes (2026-11-06)
+
+v1 was built from the plan in `docs/plans/2026-11-06-v1-passkey-sign-in.md`. Where the built code differs from the design or the plan, the code is the truth. The sections above have been corrected; this list records each difference and why.
+
+1. **`authCollection`, not `collection`.** The stored slug field on `passkeys` and `passkey-challenges` is `authCollection`, because Mongoose reserves `collection` as a schema path. Function parameters that hold a slug are still called `collection`. Security review H3 and the plan still say `collection` in places; read it as `authCollection`.
+2. **User deletion uses `beforeDelete`.** Passkeys and pending challenges are removed in a `beforeDelete` hook, not `afterDelete` (section 3, "Fields on each auth collection"), with the document-lock caveat recorded there.
+3. **The plugin reads the body itself.** `readJsonBody` (`src/server/http.ts`) reads the stream in chunks and stops past 64 KB, because `addDataAndFileToRequest` reads the whole body first and `Content-Length` is only a hint. It stays JSON-only (M4) and sets `req.data` and `req.json`.
+4. **`reauthenticate` is stricter.** With `loginWithUsername` and email login both on, Payload matches `email = x OR username = x`, so the password could sign in a different account. `reauthenticate` refuses (`wrong_account`) when the account `loginOperation` signed in isn't the session's, and ends that stray session. It builds the response before revoking the old session, so a failure leaves the browser signed in as it was, and it logs a failed revoke of the old session instead of throwing (the browser is already on the new one).
+5. **`onSignIn` runs before the token.** It runs after the `beforeLogin` hooks and before `jwtSign` and the `afterLogin` hooks (section 3, step 5), so it can refuse a sign-in before a token exists.
+6. **`safeAdminRedirect`** also refuses a resolved path starting with `//` or `/\` (section 4.2 step 7).
+7. **The `unknownCredential` hint** is the one exception to "all sign-in failures look the same" (sections 4.2 and 6).
+8. **`duplicate_credential_race`.** When two registrations of the same credential race, the unique index on `credentialId` refuses the second insert, and the failure is logged with that reason.
+9. **Smaller changes:** a stricter IPv6 check in `src/shared/rpid.ts`; `admin.meta.title` read as a string or a Next.js title object for the default `rpName`; an `ownerField` helper that makes `passkeys.user` a plain relationship with one collection and polymorphic with several; `typescript.autoGenerate` off under Vitest and e2e in the dev app.
+10. **Node.** `engines.node` is `>=22.12.0`; Payload 3.92 and later need Node `^22.23.4 || >=24.22.1` themselves (section 7).
+11. **pnpm 11** reads its settings from `pnpm-workspace.yaml`, not `.npmrc` (section 10).
+12. **Release.** The release publishes a pnpm-packed tarball with `npm publish`, because `npm publish` in the repository ignores `publishConfig.exports` (section 10). Signed tags are not produced by the workflow and need a decision (`docs/release-setup.md`).
+13. **README samples** live in `dev/readme-samples.ts`, which `pnpm typecheck` covers, and `test/unit/readmeSamples.spec.ts` fails when the README's code blocks drift from it.
