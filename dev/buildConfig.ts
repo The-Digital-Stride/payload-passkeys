@@ -62,5 +62,10 @@ export const buildDevConfig = ({
     ],
     secret: process.env.PAYLOAD_SECRET ?? 'dev-only-secret-change-me',
     serverURL: SERVER_URL,
-    typescript: { outputFile: path.resolve(dirname, 'payload-types.ts') },
+    typescript: {
+      // Payload spawns `payload generate:types` on every init outside production; under Vitest
+      // that child outlives the run and spins, one per test file.
+      autoGenerate: !process.env.VITEST,
+      outputFile: path.resolve(dirname, 'payload-types.ts'),
+    },
   } satisfies Config)
