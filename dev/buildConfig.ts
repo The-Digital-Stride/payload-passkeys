@@ -54,9 +54,8 @@ export const buildDevConfig = ({
     },
     plugins: [
       passkeysPlugin({
-        // Task 11 types these options; until then the plugin takes none.
-        // collections: variant === 'multi' ? ['users', 'customers'] : ['users'],
-        // onSignIn: (args) => testHooks.onSignIn?.(args as Record<string, unknown>) as undefined,
+        collections: variant === 'multi' ? ['users', 'customers'] : ['users'],
+        onSignIn: (args) => testHooks.onSignIn?.(args as Record<string, unknown>) as undefined,
         ...plugin,
       }),
     ],

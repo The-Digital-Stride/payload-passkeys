@@ -1,6 +1,8 @@
 import type { Config } from 'payload'
 
-export type PasskeysPluginOptions = Record<string, never>
+import type { PasskeysPluginOptions } from './types.js'
+
+export type * from './types.js'
 
 export const passkeysPlugin =
   (_options: PasskeysPluginOptions = {}) =>
