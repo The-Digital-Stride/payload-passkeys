@@ -1,0 +1,29 @@
+{
+  "extends": "../tsconfig.json",
+  "exclude": [],
+  "include": [
+    "**/*.js",
+    "**/*.jsx",
+    "**/*.mjs",
+    "**/*.cjs",
+    "**/*.ts",
+    "**/*.tsx",
+    "../src/**/*.ts",
+    "../src/**/*.tsx",
+    "../test/**/*.ts",
+    "../scripts/**/*.ts",
+    "next.config.mjs",
+    ".next/types/**/*.ts"
+  ],
+  "compilerOptions": {
+    "baseUrl": "./",
+    "paths": {
+      "@payload-config": ["./payload.config.ts"],
+      "@the-digital-stride/payload-passkeys": ["../src/index.ts"],
+      "@the-digital-stride/payload-passkeys/client": ["../src/exports/client.ts"],
+      "@the-digital-stride/payload-passkeys/rsc": ["../src/exports/rsc.ts"]
+    },
+    "noEmit": true,
+    "emitDeclarationOnly": false
+  }
+}

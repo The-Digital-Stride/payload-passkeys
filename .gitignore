@@ -14,3 +14,4 @@ dev/media/
 dev/*.db
 test/.tmp/
 *.tsbuildinfo
+next-env.d.ts
