@@ -13,6 +13,7 @@
     "../test/**/*.ts",
     "../scripts/**/*.ts",
     "next.config.mjs",
+    "../playwright.config.ts",
     ".next/types/**/*.ts"
   ],
   "compilerOptions": {
