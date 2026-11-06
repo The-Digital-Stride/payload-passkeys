@@ -2,6 +2,7 @@ import type { CollectionBeforeDeleteHook, CollectionConfig, Field } from 'payloa
 
 import type { ResolvedOptions } from '../server/options.js'
 
+import { logEvent } from '../server/logging.js'
 import { ownPasskeysWhere } from './passkeys.js'
 import { USER_HANDLE_FIELD } from '../shared/constants.js'
 
@@ -20,6 +21,11 @@ export const userHandleField: Field = {
  * the user's row can't go first, because passkeys.user_id is NOT NULL (single collection) and the
  * polymorphic _rels rows cascade away before an afterDelete hook could find them. Errors propagate
  * so the user is never deleted with passkeys left behind.
+ *
+ * The opposite can happen: Payload checks the document lock after beforeDelete, and the lock check
+ * isn't exported. On an adapter without transactions (SQLite by default, standalone MongoDB) a
+ * delete refused for a lock still loses the passkeys. That fails safe (the password still works),
+ * and the log line below records it.
  */
 const removePasskeysOfUser =
   (options: ResolvedOptions, collectionSlug: string): CollectionBeforeDeleteHook =>
@@ -35,6 +41,11 @@ const removePasskeysOfUser =
       where: {
         and: [{ collection: { equals: collectionSlug } }, { userId: { equals: String(id) } }],
       },
+    })
+    logEvent(req, options, 'passkeys.removed', {
+      collection: collectionSlug,
+      reason: 'user_deleted',
+      userId: id,
     })
   }
 

@@ -367,7 +367,8 @@ export const reauthenticate = async ({
     await revokeSessions({ collectionSlug, only: [sid], req, userId }).catch(logRevokeFailure)
     throw error
   }
-  // A stale session can't pass the fresh-session rule, so a failed revoke is logged, not fatal.
+  // Logged, not fatal: the browser is already on the new session. If this revoke fails, the old
+  // session (which may still be fresh) lives until it expires, a trade-off for not signing out.
   await revokeSessions({ collectionSlug, only: [previousSid], req, userId }).catch(logRevokeFailure)
   return { body, setCookie: cookieFor(req, config, result.token), sid }
 }
