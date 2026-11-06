@@ -10,6 +10,7 @@ import { challengesCollection } from './collections/challenges.js'
 import { challengeUsesCollection } from './collections/challengeUses.js'
 import { passkeysCollection } from './collections/passkeys.js'
 import { withPasskeyFields } from './collections/userFields.js'
+import { bootPasskeys } from './server/boot.js'
 import { OPTIONS_KEY } from './server/context.js'
 import { passkeyEndpoints } from './server/endpoints/index.js'
 import { resolveOptions } from './server/options.js'
@@ -55,5 +56,10 @@ export const passkeysPlugin =
       custom: { ...incoming.custom, [OPTIONS_KEY]: resolved },
       // Always, even when disabled: the schema's admin text stays translatable.
       i18n: withPasskeysTranslations(incoming.i18n),
+      // Always, even when disabled, and always before the host's own onInit.
+      onInit: async (payload) => {
+        await bootPasskeys(payload, resolved)
+        if (incoming.onInit) await incoming.onInit(payload)
+      },
     }
   }

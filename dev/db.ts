@@ -14,14 +14,33 @@ export const adapterName = (): AdapterName => {
   throw new Error(`DATABASE_ADAPTER must be mongo, postgres or sqlite, not "${value}"`)
 }
 
-export const databaseAdapter = () => {
+export type DatabaseOptions = {
+  /**
+   * Test only. `false` stands in for a host that builds no indexes (`ensureIndexes: false` and
+   * Mongoose's `autoIndex: false`), to prove the plugin builds its own (design point 17).
+   */
+  mongoIndexes?: boolean
+  /** Test only. Use this database name instead of the one in DATABASE_URL (MongoDB). */
+  mongoDatabase?: string
+}
+
+const withDatabaseName = (url: string, name: string | undefined): string => {
+  if (!name) return url
+  const parsed = new URL(url)
+  parsed.pathname = `/${name}`
+  return parsed.toString()
+}
+
+export const databaseAdapter = ({ mongoDatabase, mongoIndexes = true }: DatabaseOptions = {}) => {
   const url = process.env.DATABASE_URL
   switch (adapterName()) {
     case 'mongo':
       // ensureIndexes: the unique index on passkey-challenge-uses is the replay guard (M3).
       return mongooseAdapter({
-        ensureIndexes: true,
-        url: url ?? 'mongodb://127.0.0.1/payload-passkeys',
+        ...(mongoIndexes
+          ? { ensureIndexes: true }
+          : { connectOptions: { autoIndex: false }, ensureIndexes: false }),
+        url: withDatabaseName(url ?? 'mongodb://127.0.0.1/payload-passkeys', mongoDatabase),
       })
     case 'postgres':
       return postgresAdapter({

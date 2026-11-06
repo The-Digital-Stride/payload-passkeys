@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url'
 import type { PasskeysPluginOptions } from '../src/index.js'
 
 import { passkeysPlugin } from '../src/index.js'
+import type { DatabaseOptions } from './db.js'
+
 import { databaseAdapter } from './db.js'
 import { testEmailAdapter } from './helpers/testEmailAdapter.js'
 import { seed } from './seed.js'
@@ -39,15 +41,16 @@ const customers: CollectionConfig = {
 }
 
 export const buildDevConfig = ({
+  db = {},
   plugin = {},
   variant = 'single',
-}: { plugin?: PasskeysPluginOptions; variant?: 'multi' | 'single' } = {}) =>
+}: { db?: DatabaseOptions; plugin?: PasskeysPluginOptions; variant?: 'multi' | 'single' } = {}) =>
   buildConfig({
     admin: { importMap: { baseDir: path.resolve(dirname) }, user: 'users' },
     collections: variant === 'multi' ? [users, customers] : [users],
     // 127.0.0.1 stands in for a preview host: same app, not under the RP ID (Tasks 21 and 36).
     csrf: [SERVER_URL, 'http://127.0.0.1:3000'],
-    db: databaseAdapter(),
+    db: databaseAdapter(db),
     email: testEmailAdapter,
     onInit: async (payload) => {
       if (process.env.NODE_ENV !== 'test') await seed(payload)
