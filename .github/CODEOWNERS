@@ -1,0 +1,8 @@
+# Changes to CI, release and security-critical code need a maintainer's review.
+# Replace <maintainer-handle> with the real GitHub user or team (docs/release-setup.md).
+/.github/                      <maintainer-handle>
+/src/server/mintSession.ts     <maintainer-handle>
+/src/server/challenges.ts      <maintainer-handle>
+/src/server/endpoints/         <maintainer-handle>
+/package.json                  <maintainer-handle>
+/pnpm-workspace.yaml           <maintainer-handle>
