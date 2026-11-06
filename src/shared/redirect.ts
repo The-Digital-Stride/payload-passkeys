@@ -26,6 +26,9 @@ export const safeAdminRedirect = (redirectTo: unknown, adminRoute = '/admin'): s
   }
   if (url.origin !== 'http://localhost' || url.username || url.password) return admin
   const { hash, pathname, search } = url
+  // Resolving dot segments can leave `//host` (`/.//evil.test`), which a browser reads as another
+  // origin. getSafeRedirect only refuses that before resolution, so check again after it.
+  if (/^\/[/\\]/.test(pathname)) return admin
   const inside = admin === '/' || pathname === admin || pathname.startsWith(`${admin}/`)
   return inside ? `${pathname}${search}${hash}` : admin
 }

@@ -36,4 +36,15 @@ describe('safeAdminRedirect', () => {
     expect(safeAdminRedirect('/admin', '/cms')).toBe('/cms')
     expect(safeAdminRedirect('/anything', '/')).toBe('/anything')
   })
+
+  it.each([
+    ['/.//evil.test', '/'],
+    ['/admin/..//evil.test', ''],
+    ['/./\\evil.test', '/'],
+    ['/admin/.//evil.test', '/admin'],
+  ])('never turns %j into a protocol-relative URL (admin route %j)', (input, adminRoute) => {
+    const result = safeAdminRedirect(input, adminRoute)
+    expect(result.startsWith('//')).toBe(false)
+    expect(result.startsWith('/\\')).toBe(false)
+  })
 })
