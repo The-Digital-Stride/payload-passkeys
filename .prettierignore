@@ -14,3 +14,4 @@ playwright-report
 pnpm-lock.yaml
 **/importMap.js
 dev/app/(payload)/**
+dev/migrations/**

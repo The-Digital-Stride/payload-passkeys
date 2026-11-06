@@ -43,6 +43,8 @@ const eslintConfig = [
       '**/payload-types.ts',
       '**/*.generated.ts',
       'dev/app/(payload)/**',
+      // Written by `payload migrate:create`; regenerated, never edited by hand.
+      'dev/migrations/**',
       'test/.tmp/**',
       'test-results/',
       'playwright-report/',
