@@ -218,3 +218,43 @@
     padding-left: calc(20px + var(--base) / 2);
   }
 }
+
+/* The enrolment prompt: a non-modal card, above the nav and below modals */
+
+.passkeys-enrol {
+  position: fixed;
+  right: var(--base);
+  bottom: var(--base);
+  z-index: calc(var(--z-nav) + 1);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 2);
+  width: min(calc(var(--base) * 20), calc(100vw - var(--base) * 2));
+  padding: var(--base);
+  border: 1px solid var(--theme-elevation-150);
+  border-radius: var(--style-radius-m);
+  background: var(--theme-elevation-0);
+  box-shadow: 0 4px 24px rgb(0 0 0 / 15%);
+}
+
+.passkeys-enrol__title,
+.passkeys-enrol__body {
+  margin: 0;
+}
+
+.passkeys-enrol__title {
+  font-size: 1.1rem;
+}
+
+.passkeys-enrol__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--base) / 2);
+}
+
+@media (max-width: 768px) {
+  .passkeys-enrol {
+    right: 50%;
+    transform: translateX(50%);
+  }
+}

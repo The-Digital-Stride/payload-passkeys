@@ -23,6 +23,7 @@ import { ENDPOINTS } from '../../shared/constants.js'
 import type { ApiReply } from '../shared/api.js'
 
 import { createApi } from '../shared/api.js'
+import { PASSKEYS_CHANGED_EVENT } from '../shared/events.js'
 import { registerFlow, syncAcceptedCredentials } from '../shared/flows.js'
 import { usePasswordPrompt } from '../shared/PasswordPrompt.js'
 import { usePasskeysT } from '../shared/usePasskeysT.js'
@@ -88,11 +89,17 @@ export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collecti
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
-    void api(ENDPOINTS.status).then((reply) => {
-      if (mounted.current) apply(reply)
-    })
+    const load = () => {
+      void api(ENDPOINTS.status).then((reply) => {
+        if (mounted.current) apply(reply)
+      })
+    }
+    load()
+    // The enrolment prompt can add a passkey while this page is open.
+    window.addEventListener(PASSKEYS_CHANGED_EVENT, load)
     return () => {
       mounted.current = false
+      window.removeEventListener(PASSKEYS_CHANGED_EVENT, load)
     }
   }, [api, apply])
 

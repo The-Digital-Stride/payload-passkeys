@@ -44,6 +44,16 @@ const withAdminComponents = (
   return {
     ...components,
     afterLogin: [...(components?.afterLogin ?? []), ...signIn],
+    providers: [
+      ...(components?.providers ?? []),
+      {
+        clientProps: {
+          collections: resolved.collections,
+          enrolmentPrompt: resolved.enrolmentPrompt,
+        },
+        path: `${PACKAGE_NAME}/client#PasskeysProvider`,
+      },
+    ],
   }
 }
 

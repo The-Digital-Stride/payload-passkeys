@@ -76,3 +76,28 @@ describe('the Passkeys section field', () => {
     expect(names).toEqual(['passkeyUserHandle'])
   })
 })
+
+describe('the passkeys provider', () => {
+  const provider = (enrolmentPrompt: boolean, collections = ['users']) => ({
+    clientProps: { collections, enrolmentPrompt },
+    path: '@the-digital-stride/payload-passkeys/client#PasskeysProvider',
+  })
+
+  it('wraps the admin after the host’s own providers', () => {
+    const config = passkeysPlugin()(
+      base({ admin: { components: { providers: ['/host#Provider'] }, user: 'users' } }),
+    )
+    expect(config.admin?.components?.providers).toEqual(['/host#Provider', provider(true)])
+  })
+
+  it('passes the collections and the enrolment prompt option', () => {
+    const config = passkeysPlugin({ collections: ['users', 'customers'], enrolmentPrompt: false })(
+      base(),
+    )
+    expect(config.admin?.components?.providers).toEqual([provider(false, ['users', 'customers'])])
+  })
+
+  it('is left out when disabled', () => {
+    expect(passkeysPlugin({ enabled: false })(base()).admin?.components?.providers).toBeUndefined()
+  })
+})
