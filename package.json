@@ -78,6 +78,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
+    "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
     "@payloadcms/db-mongodb": "3.90.2",
     "@payloadcms/db-postgres": "3.90.2",
