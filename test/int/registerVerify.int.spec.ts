@@ -1,7 +1,7 @@
 import type { Payload } from 'payload'
 
 import { getPayload } from 'payload'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import config from '../configs/single.js'
 import { SERVER_URL } from '../helpers/api.js'
@@ -25,6 +25,13 @@ const setUp = async (authOptions: Partial<Parameters<typeof createSoftAuthentica
   const authenticator = createSoftAuthenticator({ origin: SERVER_URL, ...authOptions })
   return { authenticator, client, user }
 }
+
+/** The `reason` of the last registration_failed log line. */
+const lastFailureReason = (spy: ReturnType<typeof vi.spyOn>) =>
+  (spy.mock.calls as [{ msg?: string; reason?: string }][])
+    .map(([line]) => line)
+    .filter((line) => line.msg === 'passkeys.registration_failed')
+    .at(-1)?.reason
 
 const rows = (userId: number | string) =>
   payload.find({
@@ -85,14 +92,18 @@ describe('register/verify', () => {
     expect(refused.verify!.json).toEqual({ error: 'registration_failed' })
   })
 
-  it('refuses a replayed response', async () => {
+  // Sequential: the challenge is already consumed. The parallel race is Task 33.
+  it('refuses the same response sent again', async () => {
     const { authenticator, client } = await setUp()
     const first = await registerPasskey(client, authenticator)
     expect(first.verify!.status).toBe(200)
+    const warn = vi.spyOn(payload.logger, 'warn')
     const again = await client.post('/api/users/passkeys/register/verify', {
       response: first.response,
     })
     expect(again.json).toEqual({ error: 'registration_failed' })
+    expect(lastFailureReason(warn)).toBe('unknown_challenge')
+    warn.mockRestore()
   })
 
   it('refuses a credential ID stored for anyone', async () => {
@@ -105,7 +116,11 @@ describe('register/verify', () => {
       credentialId: response.id,
       userId: other.id,
     })
+    const warn = vi.spyOn(payload.logger, 'warn')
     const res = await client.post('/api/users/passkeys/register/verify', { response })
     expect(res.json).toEqual({ error: 'registration_failed' })
+    // The explicit check, not the unique index behind it.
+    expect(lastFailureReason(warn)).toBe('duplicate_credential')
+    warn.mockRestore()
   })
 })

@@ -132,7 +132,7 @@ export const registerVerifyEndpoint = (options: ResolvedOptions, collectionSlug:
         })) as unknown as PasskeyRow
       } catch {
         // The unique index on credentialId lost a race with a parallel registration.
-        return refuse('duplicate_credential', info.credential.id)
+        return refuse('duplicate_credential_race', info.credential.id)
       }
 
       logEvent(req, options, 'passkeys.registered', {
