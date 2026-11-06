@@ -1,5 +1,9 @@
 import type { Config } from 'payload'
 
+import { existsSync } from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
 import type { PasskeysPluginOptions } from './types.js'
 
 import { challengesCollection } from './collections/challenges.js'
@@ -12,6 +16,12 @@ import { resolveOptions } from './server/options.js'
 import { withPasskeysTranslations } from './translations/index.js'
 
 export type * from './types.js'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+/** dist/bin/reset.js when published, src/bin/reset.ts in this repo. */
+const resetScriptPath = ['bin/reset.js', 'bin/reset.ts']
+  .map((file) => path.join(here, file))
+  .find((file) => existsSync(file))
 
 export const passkeysPlugin =
   (options: PasskeysPluginOptions = {}) =>
@@ -31,6 +41,11 @@ export const passkeysPlugin =
     })
     return {
       ...incoming,
+      // Always, even when disabled: recovery must work whatever the plugin's state (review M6).
+      bin: [
+        ...(incoming.bin ?? []),
+        ...(resetScriptPath ? [{ key: 'passkeys:reset', scriptPath: resetScriptPath }] : []),
+      ],
       collections: [
         ...collections,
         passkeysCollection(resolved),
