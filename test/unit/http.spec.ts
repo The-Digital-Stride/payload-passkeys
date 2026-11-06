@@ -20,6 +20,14 @@ const req = (init: { body?: string; headers?: Record<string, string>; user?: unk
 }
 
 describe('readJsonBody (review M4)', () => {
+  it('leaves req.json() working for later hooks', async () => {
+    const request = req({ body: '{"a":1}', headers: { 'Content-Type': 'application/json' } }) as {
+      json: () => Promise<unknown>
+    }
+    await readJsonBody(request as never)
+    expect(await request.json()).toEqual({ a: 1 })
+  })
+
   it('parses an application/json object', async () => {
     expect(
       await readJsonBody(req({ body: '{"a":1}', headers: { 'Content-Type': 'application/json' } })),

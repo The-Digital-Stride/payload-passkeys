@@ -88,6 +88,8 @@ export const readJsonBody = async (req: PayloadRequest): Promise<Record<string, 
     throw new EndpointError(400, 'bad_request')
   }
   req.data = data as Record<string, unknown>
+  // The stream is spent; hooks that call req.json() (as after Payload's own parser) still work.
+  req.json = () => Promise.resolve(data)
   return data as Record<string, unknown>
 }
 
