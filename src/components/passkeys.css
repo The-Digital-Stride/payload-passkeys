@@ -53,11 +53,16 @@
 
 /* The Passkeys section (account page) */
 
+/* Spaced like Payload's own group fields, which sit inside the same .render-fields. */
 .passkeys-manager {
   display: flex;
   flex-direction: column;
   gap: calc(var(--base) / 2);
-  margin-bottom: var(--base);
+  margin-bottom: calc(var(--spacing-field, var(--base)) * 2);
+}
+
+.passkeys-manager:not(:first-child) {
+  margin-top: calc(var(--spacing-field, var(--base)) * 2);
 }
 
 .passkeys-manager__title {
