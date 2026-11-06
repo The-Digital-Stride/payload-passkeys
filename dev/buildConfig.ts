@@ -1,4 +1,4 @@
-import type { CollectionConfig, Config, Endpoint } from 'payload'
+import type { CollectionConfig, Config, Endpoint, IncomingAuthType } from 'payload'
 
 import { buildConfig } from 'payload'
 import path from 'path'
@@ -83,14 +83,39 @@ const customers: CollectionConfig = {
   ...hookFields,
 }
 
+/** Payload 3.90 exports the strategy's parts but not `AuthStrategy` itself. */
+export type AuthStrategy = NonNullable<IncomingAuthType['strategies']>[number]
+
+/** Test only: the users collection with extra auth strategies, which run before Payload's own. */
+const withStrategies = (collection: CollectionConfig, strategies: AuthStrategy[] | undefined) =>
+  strategies?.length
+    ? {
+        ...collection,
+        auth: {
+          ...(typeof collection.auth === 'object' ? collection.auth : {}),
+          strategies,
+        },
+      }
+    : collection
+
 export const buildDevConfig = ({
+  authStrategies,
   db = {},
   plugin = {},
   variant = 'single',
-}: { db?: DatabaseOptions; plugin?: PasskeysPluginOptions; variant?: 'multi' | 'single' } = {}) =>
+}: {
+  /** Test only. Custom strategies on the users collection (test/configs/customStrategy.ts). */
+  authStrategies?: AuthStrategy[]
+  db?: DatabaseOptions
+  plugin?: PasskeysPluginOptions
+  variant?: 'multi' | 'single'
+} = {}) =>
   buildConfig({
     admin: { importMap: { baseDir: path.resolve(dirname) }, user: 'users' },
-    collections: variant === 'multi' ? [users, customers] : [users],
+    collections:
+      variant === 'multi'
+        ? [withStrategies(users, authStrategies), customers]
+        : [withStrategies(users, authStrategies)],
     // 127.0.0.1 stands in for a preview host: same app, not under the RP ID (Tasks 21 and 36).
     csrf: [SERVER_URL, 'http://127.0.0.1:3000'],
     db: databaseAdapter(db),
