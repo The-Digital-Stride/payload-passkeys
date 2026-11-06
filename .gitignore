@@ -10,3 +10,7 @@ test-results/
 playwright-report/
 *.db
 *.sqlite
+dev/media/
+dev/*.db
+test/.tmp/
+*.tsbuildinfo

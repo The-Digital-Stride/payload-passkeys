@@ -1,0 +1,11 @@
+packages:
+  - '.'
+
+# Wait a week before installing any newly published version (review L9). Minutes.
+minimumReleaseAge: 10080
+
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+  mongodb-memory-server: true
+  unrs-resolver: true
