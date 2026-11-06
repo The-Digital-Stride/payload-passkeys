@@ -55,10 +55,16 @@ export const usePasswordPrompt = (slug: string) => {
   }, [open, settle])
 
   const element = (
-    <Modal className="passkeys-modal" closeOnBlur={false} slug={slug}>
+    // faceless-ui names the dialog by its slug unless told otherwise: name it by its heading.
+    <Modal
+      aria-describedby={`${id}-body`}
+      aria-labelledby={`${id}-title`}
+      className="passkeys-modal"
+      closeOnBlur={false}
+      slug={slug}
+    >
       <div className="passkeys-modal__wrapper">
         <form
-          aria-labelledby={`${id}-title`}
           className="passkeys-modal__body"
           onSubmit={(event) => {
             event.preventDefault()
@@ -71,7 +77,7 @@ export const usePasswordPrompt = (slug: string) => {
           }}
         >
           <h2 id={`${id}-title`}>{t('confirmPasswordTitle')}</h2>
-          <p>{t('confirmPasswordBody')}</p>
+          <p id={`${id}-body`}>{t('confirmPasswordBody')}</p>
           <div className="field-type text passkeys-field">
             <label className="field-label" htmlFor={`${id}-password`}>
               {t('password')}
