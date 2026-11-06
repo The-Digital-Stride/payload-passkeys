@@ -9,6 +9,7 @@ import { withPasskeyFields } from './collections/userFields.js'
 import { OPTIONS_KEY } from './server/context.js'
 import { passkeyEndpoints } from './server/endpoints/index.js'
 import { resolveOptions } from './server/options.js'
+import { withPasskeysTranslations } from './translations/index.js'
 
 export type * from './types.js'
 
@@ -37,5 +38,7 @@ export const passkeysPlugin =
         challengeUsesCollection(resolved),
       ],
       custom: { ...incoming.custom, [OPTIONS_KEY]: resolved },
+      // Always, even when disabled: the schema's admin text stays translatable.
+      i18n: withPasskeysTranslations(incoming.i18n),
     }
   }
