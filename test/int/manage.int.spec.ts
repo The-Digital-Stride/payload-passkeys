@@ -112,7 +112,12 @@ describe('deleting a user (single collection)', () => {
     const alice = await createUser(payload, 'users')
     const row = await insertPasskey(payload, { collection: 'users', userId: alice.id })
     await payload.delete({ collection: 'users', id: alice.id })
-    expect((await payload.count({ collection: 'users', where: { id: { equals: alice.id } } })).totalDocs).toBe(0)
-    expect((await payload.count({ collection: 'passkeys', where: { id: { equals: row.id } } })).totalDocs).toBe(0)
+    expect(
+      (await payload.count({ collection: 'users', where: { id: { equals: alice.id } } })).totalDocs,
+    ).toBe(0)
+    expect(
+      (await payload.count({ collection: 'passkeys', where: { id: { equals: row.id } } }))
+        .totalDocs,
+    ).toBe(0)
   })
 })
