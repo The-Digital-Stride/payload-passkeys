@@ -337,17 +337,37 @@ export const reauthenticate = async ({
   })
   if (!result.token) throw new SignInRefused('login_failed')
   const sid = sidFromToken(result.token)
-  await revokeSessions({ collectionSlug, only: [previousSid], req, userId })
+  const logRevokeFailure = (error: unknown) =>
+    req.payload.logger.error({ err: error, msg: 'passkeys: failed to revoke a session' })
 
-  const fresh = await loadRawUser(req, collectionSlug, userId)
-  return {
-    body: {
+  // With loginWithUsername and email login both on, Payload matches `email = x OR username = x`,
+  // so another account whose username is this user's email can answer. Never move onto it.
+  const signedInId = (result.user as { id?: number | string } | undefined)?.id
+  if (signedInId === undefined || String(signedInId) !== String(userId)) {
+    if (signedInId !== undefined) {
+      await revokeSessions({ collectionSlug, only: [sid], req, userId: signedInId }).catch(
+        logRevokeFailure,
+      )
+    }
+    throw new SignInRefused('wrong_account')
+  }
+
+  // Build the response before revoking the old session, so a failure here leaves the browser
+  // signed in as it was; the new session is ended instead.
+  let body: SignInResponseBody
+  try {
+    const fresh = await loadRawUser(req, collectionSlug, userId)
+    body = {
       exp: result.exp ?? 0,
       message: req.t('authentication:passed'),
       ...(config.auth.removeTokenFromResponses ? {} : { token: result.token }),
       user: await toResponseUser({ collectionSlug, req, sid, user: fresh ?? user }),
-    },
-    setCookie: cookieFor(req, config, result.token),
-    sid,
+    }
+  } catch (error) {
+    await revokeSessions({ collectionSlug, only: [sid], req, userId }).catch(logRevokeFailure)
+    throw error
   }
+  // A stale session can't pass the fresh-session rule, so a failed revoke is logged, not fatal.
+  await revokeSessions({ collectionSlug, only: [previousSid], req, userId }).catch(logRevokeFailure)
+  return { body, setCookie: cookieFor(req, config, result.token), sid }
 }
