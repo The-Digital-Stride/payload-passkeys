@@ -16,7 +16,7 @@ import {
 export type ChallengeRecord = {
   browserKeyHash: string
   challenge: string
-  collection: string
+  authCollection: string
   expiresAt: string
   id: number | string
   type: CeremonyType
@@ -116,7 +116,7 @@ export const issueChallenge = async ({
       where: {
         and: [
           { type: { equals: 'registration' } },
-          { collection: { equals: collection } },
+          { authCollection: { equals: collection } },
           { userId: { equals: String(userId) } },
         ],
       },
@@ -129,7 +129,7 @@ export const issueChallenge = async ({
     data: {
       browserKeyHash: sha256Hex(browserKey),
       challenge,
-      collection,
+      authCollection: collection,
       expiresAt: new Date(Date.now() + CHALLENGE_TTL_MS).toISOString(),
       type,
       ...(userHandle ? { userHandle } : {}),
@@ -202,7 +202,7 @@ export const consumeChallenge = async ({
   })
 
   if (record.type !== type) throw new ChallengeRejected('wrong_type')
-  if (record.collection !== collection) throw new ChallengeRejected('wrong_collection')
+  if (record.authCollection !== collection) throw new ChallengeRejected('wrong_collection')
   if (!(Date.parse(record.expiresAt) > Date.now())) throw new ChallengeRejected('expired')
   const key = readCookie(req, browserKeyCookieName(type, collection, options.secureCookies))
   if (!key || !sameHash(sha256Hex(key), record.browserKeyHash))

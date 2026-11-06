@@ -111,7 +111,7 @@ export const registerVerifyEndpoint = (options: ResolvedOptions, collectionSlug:
           data: {
             aaguid,
             backedUp: info.credentialBackedUp,
-            collection: collectionSlug,
+            authCollection: collectionSlug,
             counter: info.credential.counter,
             credentialId: info.credential.id,
             deviceType: info.credentialDeviceType,

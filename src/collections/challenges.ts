@@ -17,7 +17,7 @@ export const challengesCollection = (options: ResolvedOptions): CollectionConfig
       options: ['registration', 'authentication'],
       required: true,
     },
-    { name: 'collection', type: 'text', required: true },
+    { name: 'authCollection', type: 'text', required: true },
     // Stored as text, not a relationship: the owner may be in any configured collection.
     { name: 'userId', type: 'text', index: true },
     { name: 'userHandle', type: 'text' },

@@ -10,7 +10,7 @@ type Ref = number | string | { id: number | string }
 export type PasskeyRow = {
   aaguid?: null | string
   backedUp: boolean
-  collection: string
+  authCollection: string
   counter: number
   createdAt: string
   credentialId: string
@@ -32,12 +32,12 @@ const idOf = (ref: Ref | null | undefined): null | number | string =>
 export const ownerOf = (row: PasskeyRow): null | { collection: string; id: number | string } => {
   const { user } = row
   if (user && typeof user === 'object' && 'relationTo' in user) {
-    if (user.relationTo !== row.collection) return null
+    if (user.relationTo !== row.authCollection) return null
     const id = idOf(user.value)
-    return id === null ? null : { collection: row.collection, id }
+    return id === null ? null : { collection: row.authCollection, id }
   }
   const id = idOf(user as Ref)
-  return id === null ? null : { collection: row.collection, id }
+  return id === null ? null : { collection: row.authCollection, id }
 }
 
 export const toPublicPasskey = (row: PasskeyRow): PublicPasskey => ({

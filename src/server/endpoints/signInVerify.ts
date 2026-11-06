@@ -72,7 +72,7 @@ export const signInVerifyEndpoint = (options: ResolvedOptions, collectionSlug: s
       const ids = { aaguid: row.aaguid ?? null, credentialId: row.credentialId }
 
       // Collection first: on SQL, users 7 and customers 7 can both exist (H3).
-      if (row.collection !== collectionSlug) {
+      if (row.authCollection !== collectionSlug) {
         await verifyAgainstDummy(response, challenge, options)
         return refuse('wrong_collection', ids)
       }

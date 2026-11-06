@@ -135,7 +135,7 @@ describe('issueChallenge', () => {
       data: {
         browserKeyHash: 'x',
         challenge: 'old',
-        collection: 'users',
+        authCollection: 'users',
         expiresAt: past,
         type: 'authentication',
       },

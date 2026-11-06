@@ -13,7 +13,7 @@ export const ownPasskeysWhere = (
   id: number | string,
 ): Where => ({
   and: [
-    { collection: { equals: collection } },
+    { authCollection: { equals: collection } },
     options.collections.length === 1
       ? { user: { equals: id } }
       : { and: [{ 'user.relationTo': { equals: collection } }, { 'user.value': { equals: id } }] },
@@ -43,7 +43,7 @@ export const passkeysCollection = (options: ResolvedOptions): CollectionConfig =
   fields: [
     ownerField(options),
     // The owner's collection slug, checked before anything else (H3).
-    { name: 'collection', type: 'text', index: true, required: true },
+    { name: 'authCollection', type: 'text', index: true, required: true },
     { name: 'credentialId', type: 'text', required: true, unique: true },
     // The WebAuthn user.id this passkey was made with (L4). Compared with each assertion.
     { name: 'userHandle', type: 'text', access: { read: never }, required: true },

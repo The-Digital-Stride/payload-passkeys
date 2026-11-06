@@ -22,7 +22,7 @@ export const insertPasskey = async (
     collection: 'passkeys',
     data: {
       backedUp: true,
-      collection,
+      authCollection: collection,
       counter: 0,
       credentialId: randomBytes(16).toString('base64url'),
       deviceType: 'multiDevice',

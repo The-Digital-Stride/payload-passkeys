@@ -56,7 +56,7 @@ describe('passkeys access (review H3)', () => {
     const list = await (await signIn('users', alice.email)).get('/api/passkeys?depth=0&limit=100')
     expect(list.status).toBe(200)
     expect(list.json.docs).toHaveLength(1)
-    expect(list.json.docs[0].collection).toBe('users')
+    expect(list.json.docs[0].authCollection).toBe('users')
     expect(findSecretKeys(list.json)).toEqual([])
   })
 

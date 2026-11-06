@@ -39,7 +39,7 @@ const removePasskeysOfUser =
       collection: options.slugs.challenges,
       req,
       where: {
-        and: [{ collection: { equals: collectionSlug } }, { userId: { equals: String(id) } }],
+        and: [{ authCollection: { equals: collectionSlug } }, { userId: { equals: String(id) } }],
       },
     })
     logEvent(req, options, 'passkeys.removed', {

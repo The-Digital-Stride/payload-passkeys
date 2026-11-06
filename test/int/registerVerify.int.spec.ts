@@ -57,7 +57,7 @@ describe('register/verify', () => {
     })
     const [row] = (await rows(user.id)).docs
     expect(row).toMatchObject({
-      collection: 'users',
+      authCollection: 'users',
       counter: 0,
       credentialId: authenticator.credentialIds()[0],
       userHandle: (await rawUser(payload, 'users', user.id)).passkeyUserHandle,
