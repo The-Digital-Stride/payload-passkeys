@@ -1,0 +1,52 @@
+/* One stylesheet for every passkeys component. Payload's own CSS variables only, so the admin's
+   light and dark themes apply; class names are passkeys-* so they can't collide. */
+
+.passkeys-note,
+.passkeys-error,
+.passkeys-status {
+  margin: 0;
+}
+
+.passkeys-note {
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-error {
+  color: var(--theme-error-500);
+}
+
+.passkeys-status {
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-status:empty {
+  display: none;
+}
+
+/* Login page */
+
+.passkeys-sign-in {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 2);
+  width: 100%;
+  margin-top: var(--base);
+}
+
+.passkeys-sign-in__or {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--base) / 2);
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-sign-in__or::before,
+.passkeys-sign-in__or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--theme-elevation-150);
+}
+
+.passkeys-sign-in__button {
+  width: 100%;
+}

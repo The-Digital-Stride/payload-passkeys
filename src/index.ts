@@ -13,10 +13,39 @@ import { withPasskeyFields } from './collections/userFields.js'
 import { bootPasskeys } from './server/boot.js'
 import { OPTIONS_KEY } from './server/context.js'
 import { passkeyEndpoints } from './server/endpoints/index.js'
+import type { ResolvedOptions } from './server/options.js'
+
 import { resolveOptions } from './server/options.js'
+import { PACKAGE_NAME } from './shared/constants.js'
 import { withPasskeysTranslations } from './translations/index.js'
 
 export type * from './types.js'
+
+type AdminComponents = NonNullable<NonNullable<Config['admin']>['components']>
+
+/** The admin components, by import path (design §3). Nothing when disabled. */
+const withAdminComponents = (
+  incoming: Config,
+  resolved: ResolvedOptions,
+): AdminComponents | undefined => {
+  const components = incoming.admin?.components
+  if (!resolved.enabled) return components
+  const adminUserSlug =
+    incoming.admin?.user ?? (incoming.collections ?? []).find((c) => c.auth)?.slug
+  const signIn =
+    adminUserSlug && resolved.collections.includes(adminUserSlug)
+      ? [
+          {
+            clientProps: { collectionSlug: adminUserSlug },
+            path: `${PACKAGE_NAME}/client#SignInWithPasskey`,
+          },
+        ]
+      : []
+  return {
+    ...components,
+    afterLogin: [...(components?.afterLogin ?? []), ...signIn],
+  }
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 /** dist/bin/reset.js when published, src/bin/reset.ts in this repo. */
@@ -42,6 +71,7 @@ export const passkeysPlugin =
     })
     return {
       ...incoming,
+      admin: { ...incoming.admin, components: withAdminComponents(incoming, resolved) },
       // Always, even when disabled: recovery must work whatever the plugin's state (review M6).
       bin: [
         ...(incoming.bin ?? []),
