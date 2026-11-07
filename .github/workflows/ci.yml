@@ -121,9 +121,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+      # The script ignores DATABASE_URL and refuses any host but 127.0.0.1 or localhost.
       - run: bash scripts/check-migrations.sh postgres
         env:
-          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys
+          CHECK_MIGRATIONS_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys
       - run: bash scripts/check-migrations.sh sqlite
 
   e2e:
