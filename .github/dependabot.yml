@@ -15,9 +15,14 @@ updates:
     # so local tests run against the oldest Payload a host may have. CI's matrix swaps in every
     # newer minor. Raising the baseline means raising the supported range: a deliberate change,
     # made by hand, not a Dependabot bump.
+    # Major versions are upgraded by hand, one at a time: they break tooling together (TypeScript
+    # 7 before typescript-eslint supports it), move past what Payload 3 accepts (graphql 17), or
+    # describe a newer Node than engines.node (@types/node must stay on 22).
     ignore:
       - dependency-name: 'payload'
       - dependency-name: '@payloadcms/*'
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     groups:
       simplewebauthn:
         # Read both changelogs before merging: these are exact pins on purpose (review L9).
