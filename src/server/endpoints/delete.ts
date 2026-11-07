@@ -19,7 +19,11 @@ import {
  * The revoke and the delete share one transaction, retried on a write conflict with a parallel
  * refresh; the revoke goes first, so without transactions a failed revoke still leaves the passkey.
  * Revoked sessions are marked so a racing refresh can't bring them back, and the user is re-read
- * until only this session is left (src/server/sessions.ts). A failure answers 503 `retry`.
+ * until only this session is left (src/server/sessions.ts). When the write fails, nothing was
+ * removed and it answers 503 `retry`. When only that last check fails, the passkey is already
+ * gone, so it answers 503 `sign_out_unconfirmed` instead: retrying the removal would find nothing
+ * (404), and the client refreshes the list and says the passkey went but other sessions may not
+ * have. Every session the plugin revoked is still marked, so none of them can authenticate.
  */
 export const deleteEndpoint = (options: ResolvedOptions, collectionSlug: string) =>
   passkeyEndpoint({
@@ -68,13 +72,13 @@ export const deleteEndpoint = (options: ResolvedOptions, collectionSlug: string)
         try {
           signedOutSessions += await confirmSignedOut({ ...sessionArgs, label: 'delete' })
         } catch (error) {
-          // The passkey is gone, but a session outlived the sign-out: say so, and let them retry.
+          // The passkey is gone, but a session outlived the sign-out: say exactly that.
           log('sign_out_unconfirmed')
           req.payload.logger.error({
             err: error,
             msg: 'passkeys: could not end the other sessions',
           })
-          throw new EndpointError(503, 'retry')
+          throw new EndpointError(503, 'sign_out_unconfirmed')
         }
       }
       const remaining = (await listPasskeysOfUser(req, options, collectionSlug, user.id)).length

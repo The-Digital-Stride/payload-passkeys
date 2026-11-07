@@ -129,3 +129,19 @@ export const syncAcceptedCredentials = async (
     // Unsupported browser or no matching passkey: nothing to do.
   }
 }
+
+/**
+ * What to tell the user after `delete`, and whether to reload the list. `sign_out_unconfirmed`
+ * means the passkey is gone but other sessions weren't confirmed ended; `not_found` means it was
+ * already gone. Either way the list on screen is out of date.
+ */
+export const removeOutcome = (reply: {
+  data: { error?: string }
+  ok: boolean
+}): { message: PasskeysTranslationKey; ok: boolean; refresh: boolean } => {
+  if (reply.ok) return { message: 'removed', ok: true, refresh: true }
+  if (reply.data.error === 'sign_out_unconfirmed') {
+    return { message: 'removedSignOutUnconfirmed', ok: false, refresh: true }
+  }
+  return { message: 'removeFailed', ok: false, refresh: reply.data.error === 'not_found' }
+}

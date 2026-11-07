@@ -7,6 +7,7 @@ import type { Api } from '../shared/api.js'
 
 import { providerName } from '../../shared/aaguid.js'
 import { ENDPOINTS, MAX_PASSKEY_NAME } from '../../shared/constants.js'
+import { removeOutcome } from '../shared/flows.js'
 import { usePasskeysT } from '../shared/usePasskeysT.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -106,12 +107,10 @@ export const PasskeyRow: React.FC<Props> = ({
       id: passkey.id,
       signOutOtherSessions: signOutOthers,
     })
-    if (!reply.ok) {
-      toast.error(t('removeFailed'))
-      return
-    }
-    toast.success(t('removed'))
-    onChanged()
+    const outcome = removeOutcome(reply)
+    if (outcome.ok) toast.success(t(outcome.message))
+    else toast.error(t(outcome.message))
+    if (outcome.refresh) onChanged()
   }
 
   return (

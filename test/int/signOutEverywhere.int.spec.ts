@@ -155,4 +155,35 @@ describe('"Also sign out everywhere" under parallel refreshes (finding 1)', () =
     if (payload.db.name === 'postgres') expect(attackerUser).not.toBeNull()
     else expect(attackerUser).toBeNull()
   })
+
+  it('answers 503 sign_out_unconfirmed when the passkey went but a session outlived the check', async () => {
+    const { attacker, owner, ownerClient, passkeyId } = await setUp()
+    const sessionsBefore = (await rawUser(payload, 'users', owner.id)).sessions ?? []
+    // Whatever the confirm loop removes comes straight back: a session it can never confirm gone.
+    const updateOne = payload.db.updateOne.bind(payload.db)
+    const spy = vi.spyOn(payload.db, 'updateOne').mockImplementation(async (args) => {
+      const result = await updateOne(args)
+      if (Array.isArray((args.data as { sessions?: unknown }).sessions)) {
+        await updateOne({ ...args, data: { sessions: sessionsBefore } })
+      }
+      return result
+    })
+    let res
+    try {
+      res = await ownerClient.post(DELETE, { id: passkeyId, signOutOtherSessions: true })
+    } finally {
+      spy.mockRestore()
+    }
+    expect(res.status).toBe(503)
+    expect(res.json).toEqual({ error: 'sign_out_unconfirmed' })
+    // Not `retry`: the passkey is already gone, so retrying the removal would only find nothing.
+    expect(await passkeyExists(passkeyId)).toBe(false)
+    expect(
+      (await ownerClient.post(DELETE, { id: passkeyId, signOutOtherSessions: true })).json,
+    ).toEqual({ error: 'not_found' })
+    // The sessions that came back are marked, so they can't authenticate even so.
+    expect((await rawUser(payload, 'users', owner.id)).sessions?.length).toBe(2)
+    expect((await attacker.get('/api/users/me')).json.user).toBeNull()
+    expect((await ownerClient.get('/api/users/me')).json.user?.id).toBe(owner.id)
+  })
 })

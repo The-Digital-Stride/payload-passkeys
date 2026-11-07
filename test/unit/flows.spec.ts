@@ -4,6 +4,7 @@ import type { Api, Browser } from '../../src/components/shared/flows.js'
 
 import {
   registerFlow,
+  removeOutcome,
   signInFlow,
   syncAcceptedCredentials,
 } from '../../src/components/shared/flows.js'
@@ -177,6 +178,41 @@ describe('syncAcceptedCredentials', () => {
       rpID: 'localhost',
       signalName: 'allAcceptedCredentials',
       userID: 'h',
+    })
+  })
+})
+
+describe('removeOutcome', () => {
+  it('says removed and refreshes the list on success', () => {
+    expect(removeOutcome(reply(200, { removed: true }))).toEqual({
+      message: 'removed',
+      ok: true,
+      refresh: true,
+    })
+  })
+
+  it('says not removed, and keeps the list, when the removal failed', () => {
+    for (const failed of [
+      reply(503, { error: 'retry' }),
+      reply(500),
+      { data: { error: 'network' }, ok: false, status: 0 },
+    ])
+      expect(removeOutcome(failed)).toEqual({ message: 'removeFailed', ok: false, refresh: false })
+  })
+
+  it('says removed but maybe still signed in elsewhere, and refreshes, when only the sign-out failed', () => {
+    expect(removeOutcome(reply(503, { error: 'sign_out_unconfirmed' }))).toEqual({
+      message: 'removedSignOutUnconfirmed',
+      ok: false,
+      refresh: true,
+    })
+  })
+
+  it('refreshes the list when the passkey was already gone', () => {
+    expect(removeOutcome(reply(404, { error: 'not_found' }))).toEqual({
+      message: 'removeFailed',
+      ok: false,
+      refresh: true,
     })
   })
 })

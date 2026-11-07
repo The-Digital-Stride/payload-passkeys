@@ -36,6 +36,8 @@ export const en = {
     removeLast: 'This is your only passkey. You can still sign in with your password.',
     removeTitle: 'Remove “{{name}}”?',
     removed: 'Passkey removed.',
+    removedSignOutUnconfirmed:
+      'Passkey removed, but other sessions might still be signed in. To be sure, change your password: that signs out every other session.',
     rename: 'Rename',
     retry: 'Try again',
     renamed: 'Passkey renamed.',

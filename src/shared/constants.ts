@@ -39,6 +39,8 @@ export type PasskeysErrorCode =
   | 'retry'
   | 'server_error'
   | 'sign_in_failed'
+  /** The passkey was removed, but other sessions could not be confirmed signed out. */
+  | 'sign_out_unconfirmed'
   | 'too_many_passkeys'
   | 'unauthorised'
   | 'unavailable'
