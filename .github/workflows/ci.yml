@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - name: Registry signatures
-        run: npm audit signatures
+        run: bash scripts/audit-signatures.sh
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test:unit
