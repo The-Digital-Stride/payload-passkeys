@@ -47,7 +47,12 @@ export const logEvent = (
   const line: Record<string, unknown> = { event, ...fields }
   if (credentialId) line.credentialIdPrefix = credentialId.slice(0, 8)
   if (failure) {
-    const ip = formatIp(options.clientIp(req), options.logging.ip)
+    let ip: string | undefined
+    try {
+      ip = formatIp(options.clientIp(req), options.logging.ip)
+    } catch {
+      // A host clientIp resolver that throws loses the IP from the line, not the line itself.
+    }
     if (ip) line.ip = ip
   }
   const level = failure || event === 'passkeys.counter_regression' ? 'warn' : 'info'
