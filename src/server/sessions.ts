@@ -68,8 +68,15 @@ export const revokedSessionMarker = (collectionSlug: string, sid: string): strin
   `session:${collectionSlug}:${sid}`
 
 /**
- * The ids among `sids` that have a revocation marker: one query on the unique `challenge` index.
- * Throws when the lookup fails, so callers fail closed.
+ * Ids per marker lookup. Each id is a bind parameter on Drizzle, and a host's
+ * `find({ limit: 0 })` of a large users collection can carry more session ids than Postgres
+ * (65535) or SQLite (32766) accepts in one statement.
+ */
+export const MARKER_LOOKUP_CHUNK = 500
+
+/**
+ * The ids among `sids` that have a revocation marker: one query on the unique `challenge` index
+ * per MARKER_LOOKUP_CHUNK ids. Throws when any lookup fails, so callers fail closed.
  */
 export const findRevokedSids = async ({
   collectionSlug,
@@ -85,16 +92,19 @@ export const findRevokedSids = async ({
   const revoked = new Set<string>()
   if (sids.length === 0) return revoked
   const bySid = new Map(sids.map((sid) => [revokedSessionMarker(collectionSlug, sid), sid]))
-  const { docs } = await req.payload.db.find({
-    collection: options.slugs.challengeUses,
-    limit: 0,
-    pagination: false,
-    req,
-    where: { challenge: { in: [...bySid.keys()] } },
-  })
-  for (const doc of docs as { challenge?: unknown }[]) {
-    const sid = bySid.get(doc.challenge as string)
-    if (sid) revoked.add(sid)
+  const markers = [...bySid.keys()]
+  for (let start = 0; start < markers.length; start += MARKER_LOOKUP_CHUNK) {
+    const { docs } = await req.payload.db.find({
+      collection: options.slugs.challengeUses,
+      limit: 0,
+      pagination: false,
+      req,
+      where: { challenge: { in: markers.slice(start, start + MARKER_LOOKUP_CHUNK) } },
+    })
+    for (const doc of docs as { challenge?: unknown }[]) {
+      const sid = bySid.get(doc.challenge as string)
+      if (sid) revoked.add(sid)
+    }
   }
   return revoked
 }
@@ -114,9 +124,9 @@ const sessionIdsOf = (doc: WithSessions): string[] =>
  * or find returns. Payload's local-jwt strategy (payload/dist/auth/strategies/jwt.js) loads the
  * user with findByID and refuses a token whose `sid` isn't in `user.sessions`, so this is what
  * stops a revoked session that a racing write put back from authenticating anything: REST,
- * GraphQL, the admin and the plugin's own endpoints alike. One query per read, none when the
- * documents carry no sessions. A failed lookup throws, and the strategy treats a throw as signed
- * out (fail closed).
+ * GraphQL, the admin and the plugin's own endpoints alike. One query per read (per
+ * MARKER_LOOKUP_CHUNK sessions in a large find), none when the documents carry no sessions. A
+ * failed lookup throws, and the strategy treats a throw as signed out (fail closed).
  */
 export const hideRevokedSessions =
   (options: ResolvedOptions): CollectionAfterOperationHook =>
