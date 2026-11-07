@@ -57,7 +57,7 @@
     "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix && prettier --write .",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "node -e 'console.error(\"Publish with `pnpm release` (it publishes a checked tarball).\"); process.exit(1)'",
     "release": "pnpm build && node scripts/publish.mjs",
     "test": "pnpm test:unit && pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
