@@ -7,9 +7,13 @@ export type TestDatabase =
   | { adapter: 'postgres'; source: 'url'; url: string }
   | { adapter: 'sqlite'; source: 'temp-file' }
 
-/** The database dev/docker-compose.yml and CI's postgres service provide. */
+/**
+ * A database of its own on the Postgres dev/docker-compose.yml runs, never the dev app's
+ * `payload_passkeys` (dev/db.ts), which the suite would drop. Payload's Postgres adapter creates it
+ * on first connect. CI sets PAYLOAD_TEST_DATABASE_URL to its service's database instead.
+ */
 export const DEFAULT_TEST_POSTGRES_URL =
-  'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys'
+  'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys_test'
 
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost'])
 

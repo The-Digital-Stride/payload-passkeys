@@ -17,6 +17,13 @@ describe('resolveTestDatabase', () => {
     expect(resolveTestDatabase({ DATABASE_ADAPTER: adapter })).toEqual(expected)
   })
 
+  it('never defaults to the dev app’s Postgres database, which it would drop', () => {
+    const resolved = resolveTestDatabase({ DATABASE_ADAPTER: 'postgres' })
+    expect(resolved).toEqual({ adapter: 'postgres', source: 'url', url: DEFAULT_TEST_POSTGRES_URL })
+    // dev/db.ts falls back to postgres://…/payload_passkeys, the one dev/docker-compose.yml makes.
+    expect(new URL(DEFAULT_TEST_POSTGRES_URL).pathname).toBe('/payload_passkeys_test')
+  })
+
   it.each([
     ['mongo', 'mongodb://127.0.0.1/payload-passkeys'],
     ['mongo', 'mongodb+srv://user:pass@cluster0.example.net/production'],
