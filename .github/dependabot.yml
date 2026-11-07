@@ -11,9 +11,14 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # The dev copies of Payload stay on the lowest supported version (peerDependencies: >=3.90.0),
+    # so local tests run against the oldest Payload a host may have. CI's matrix swaps in every
+    # newer minor. Raising the baseline means raising the supported range: a deliberate change,
+    # made by hand, not a Dependabot bump.
+    ignore:
+      - dependency-name: 'payload'
+      - dependency-name: '@payloadcms/*'
     groups:
-      payload:
-        patterns: ['payload', '@payloadcms/*']
       simplewebauthn:
         # Read both changelogs before merging: these are exact pins on purpose (review L9).
         patterns: ['@simplewebauthn/*']
