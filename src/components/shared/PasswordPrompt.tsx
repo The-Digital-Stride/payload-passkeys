@@ -30,6 +30,15 @@ export const usePasswordPrompt = (slug: string) => {
     resolve?.(value)
   }, [])
 
+  // The typed password doesn't outlive the prompt: whichever way it closes (`close()`, Esc, a
+  // click outside), it is cleared on the render that sees it closed. State adjusted during render,
+  // as React recommends over an effect for this.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (!open) setPassword('')
+  }
+
   const ask = useCallback(
     (nextError?: PasskeysTranslationKey) =>
       new Promise<null | string>((resolve) => {
