@@ -4,6 +4,16 @@ The release workflow (`.github/workflows/release.yml`) depends on settings that 
 
 Plan reference: Task 44 of `docs/plans/2026-11-06-v1-passkey-sign-in.md`; design §10.
 
+## How the workflow is laid out
+
+`release.yml` runs on every push to `main`, in three jobs, so the npm OIDC token never meets the repository's dependencies:
+
+1. **`version`** (`contents: write`, `pull-requests: write`, no `id-token`): installs with `--ignore-scripts` and no cache, then `changesets/action` opens or updates the version PR. With no pending changesets it does nothing and the next job runs.
+2. **`build`** (`contents: read`, no `id-token`, no cache): `pnpm install --frozen-lockfile`, `npm audit signatures`, unit tests, `pnpm build`, `pnpm pack`, then `node scripts/check-package.mjs` on that tarball. `node scripts/publish.mjs --tarball … --check` asks npm whether the version is there yet (0.0.0 never publishes). Only if it isn't does it upload the tarball and the changelog section as the `release` artifact.
+3. **`publish`** (the `release` environment, `id-token: write`, `contents: write` for the tag): no `pnpm install`, no `node_modules`, no cache. It checks out `scripts/` only, installs npm 11.21.1, downloads the artifact (digest-checked), runs `node scripts/publish.mjs --tarball …` (re-checks the tarball's files and manifest, skips a version already on npm, publishes with `--provenance` on `latest`, or `next` for a prerelease), then `gh release create v<version>` on the release commit.
+
+`test/unit/releaseWorkflow.spec.ts` fails if a change gives the OIDC token to another job or lets the publish job install anything.
+
 ## npm
 
 - [ ] Claim the npm organisation `the-digital-stride`. If it is taken, fall back to `thedigitalstride` (design §12) and rename the package everywhere, starting with `package.json` and `src/shared/constants.ts`.
@@ -16,11 +26,11 @@ Plan reference: Task 44 of `docs/plans/2026-11-06-v1-passkey-sign-in.md`; design
 
 ## GitHub repository
 
-- [ ] **Settings → Environments → `release`:** add a required reviewer, and limit deployment branches to `main`. Note that `release.yml` runs on every push to `main` and uses this environment, so every merge to `main` waits for someone to approve the run, even when there is nothing to release (it then only opens or updates the version PR). Approve it, or reject runs you don't need. If that becomes a burden, the alternative is a separate job without the environment for the version PR, with only the publish behind approval; that is a workflow change, not a setting.
+- [ ] **Settings → Environments → `release`:** add a required reviewer, and limit deployment branches to `main`. Only the `publish` job uses this environment, and it runs only when the `build` job finds a version that isn't on npm yet, so an ordinary merge to `main` doesn't wait for approval.
 - [ ] **Branch protection on `main`:** pull requests required; one approving review; review from code owners; stale approvals dismissed; signed commits; no force pushes; administrators included. Required checks: `static`, every `int (payload …, …, node …)` job, `migrations`, `e2e` and CodeQL's `analyse`.
   - The integration cells for Payload 3.93.0 can't install before **2026-11-11**: 3.93.0 was published on 2026-11-04 and pnpm's `minimumReleaseAge` (7 days, `pnpm-workspace.yaml`) refuses anything younger. Until then those cells fail at install. Don't mark them required before they have passed once.
-- [ ] **Tags:** protect `v*` and `@the-digital-stride/payload-passkeys@*` so only the release workflow creates them.
-- [ ] **Decide on signed tags.** Design §10 asks for signed tags, but the workflow doesn't produce them: `changesets/action` creates **lightweight** tags through the GitHub API, which can't be signed. The choices are (a) accept unsigned tags, relying on npm provenance (which names the exact commit) and the protected environment, and amend design §10; (b) sign tags in the workflow with a key held as a secret, and push them with git instead of the API; or (c) create and sign each release tag by hand after the workflow publishes. Record the decision in `docs/design.md`.
+- [ ] **Tags:** protect `v*` so only the release workflow creates them (the `publish` job runs `gh release create v<version>` with the job's `github.token`; allow GitHub Actions to bypass the rule).
+- [ ] **Decide on signed tags.** Design §10 asks for signed tags, but the workflow doesn't produce them: `gh release create` makes a **lightweight** tag through the GitHub API, which can't be signed. The choices are (a) accept unsigned tags, relying on npm provenance (which names the exact commit) and the protected environment, and amend design §10; (b) sign tags in the workflow with a key held as a secret, and push them with git instead of the API; or (c) create and sign each release tag by hand after the workflow publishes. Record the decision in `docs/design.md`.
 - [ ] **Settings → Code security:** private vulnerability reporting (SECURITY.md sends reporters there), Dependabot alerts and security updates, secret scanning and push protection.
 - [ ] **Settings → Actions → General:** "Require actions to be pinned to a full-length commit SHA" (or an allowlist), and workflow permissions "Read repository contents".
 - [ ] Replace `<maintainer-handle>` in `.github/CODEOWNERS` with the real GitHub user or team.

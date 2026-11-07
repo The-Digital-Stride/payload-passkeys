@@ -1,5 +1,15 @@
 name: Release
 
+# Three jobs, so the npm OIDC token never meets the repository's dependencies:
+#   version  opens or updates the version PR (changesets/action). No id-token.
+#   build    on a release commit (no pending changesets): installs, builds, packs and checks the
+#            tarball, and uploads it. Read-only token, no id-token, no cache.
+#   publish  behind the protected `release` environment: downloads that tarball and publishes it
+#            with npm trusted publishing (OIDC), then creates the tag and GitHub release. It
+#            installs no dependencies and restores no cache.
+# It runs on every push to main, so it relies on branch protection requiring the CI checks before
+# anything is merged (docs/release-setup.md).
+
 on:
   push:
     branches: [main]
@@ -11,40 +21,149 @@ concurrency:
   group: release
 
 jobs:
-  release:
-    # A protected environment with a required reviewer (Task 44): nothing publishes, and no
-    # version PR is opened, without a person approving the run. npm's trusted publisher entry
-    # names this repository, the workflow file release.yml and this environment. There is no
-    # npm token anywhere: `npm publish` authenticates with the job's OIDC token.
-    environment: release
+  version:
     permissions:
       contents: write
-      id-token: write
       pull-requests: write
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
+    outputs:
+      has-changesets: ${{ steps.changesets.outputs.has-changesets }}
     steps:
-      # No persisted credentials: changesets/action pushes the version commit and the tags
-      # through the GitHub API with its own token (push-with-git-cli is false), not with git.
+      # No persisted credentials: changesets/action pushes the version commit through the GitHub
+      # API with its own token (push-with-git-cli is false), not with git.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      # setup-node gets no registry-url: that writes an .npmrc expecting NODE_AUTH_TOKEN, which
-      # trusted publishing doesn't use.
+      # `changeset version` needs @changesets/cli and the changelog generator, nothing built: no
+      # dependency's install scripts run in a job holding a write token, and no cache is restored.
       - uses: ./.github/actions/setup
-      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10. 11.21.1, not 11.21.2:
-      # 11.21.2 was two days old on 2026-11-06, inside the seven-day cooldown (review L9).
-      - name: npm with trusted publishing
-        run: npm install -g npm@11.21.1
-      - run: npm audit signatures
-      - run: pnpm test:unit
-      # changesets/action v2 input names (publish-script, not v1's publish). With no pending
-      # changesets it runs the publish script, which is a no-op when the version is on npm.
-      - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          cache: ''
+          ignore-scripts: 'true'
+      # changesets/action v2.1.2 (inputs and outputs read from its action.yml at this SHA). No
+      # publish-script: with pending changesets it opens or updates the version PR; without any it
+      # does nothing and reports has-changesets 'false', which lets the build job run.
+      - id: changesets
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           commit-message: 'chore: release'
           github-token: ${{ github.token }}
           pr-title: 'chore: release'
-          publish-script: pnpm release
           version-script: pnpm changeset version
+
+  build:
+    needs: version
+    if: needs.version.outputs.has-changesets == 'false'
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      dist-tag: ${{ steps.check.outputs.dist-tag }}
+      needed: ${{ steps.check.outputs.needed }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache: ''
+      - run: npm audit signatures
+      - run: pnpm test:unit
+      - run: pnpm build
+      - id: pack
+        name: Pack and check the tarball
+        run: |
+          out="$RUNNER_TEMP/release"
+          mkdir -p "$out"
+          pnpm pack --pack-destination "$out"
+          tarball="$(cd "$out" && ls -1 *.tgz)"
+          if [ "$(echo "$tarball" | wc -l)" -ne 1 ]; then echo "Expected one tarball: $tarball"; exit 1; fi
+          node scripts/check-package.mjs "$out/$tarball"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+      # Already on npm (a push to main that releases nothing): needed is 'false' and the publish
+      # job is skipped, so it doesn't wait for an approval it doesn't need.
+      - id: check
+        name: Is this version on npm yet?
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: node scripts/publish.mjs --tarball "$RUNNER_TEMP/release/$TARBALL" --check
+      - name: Release notes from the changelog
+        if: steps.check.outputs.needed == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          notes="$RUNNER_TEMP/release/release-notes.md"
+          if [ -f CHANGELOG.md ]; then
+            awk -v heading="## $VERSION" '$0 == heading { found = 1; next } found && /^## / { exit } found' CHANGELOG.md > "$notes"
+          fi
+          if [ ! -s "$notes" ]; then echo "See CHANGELOG.md." > "$notes"; fi
+      - if: steps.check.outputs.needed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          if-no-files-found: error
+          name: release
+          path: ${{ runner.temp }}/release
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: needs.build.outputs.needed == 'true'
+    # A protected environment with a required reviewer (docs/release-setup.md): nothing publishes
+    # without a person approving the run. npm's trusted publisher entry names this repository, the
+    # workflow file release.yml and this environment. There is no npm token anywhere: `npm publish`
+    # authenticates with this job's OIDC token.
+    environment: release
+    permissions:
+      # gh release create makes the tag and the GitHub release.
+      contents: write
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # Only for scripts/publish.mjs and scripts/check-package.mjs, which use nothing but Node's
+      # built-ins. Nothing is installed: no node_modules exist in this job.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      # No registry-url: that writes an .npmrc expecting NODE_AUTH_TOKEN, which trusted publishing
+      # doesn't use. No cache.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10. 11.21.1, not 11.21.2:
+      # 11.21.2 was two days old on 2026-11-06, inside the seven-day cooldown (review L9).
+      - name: npm with trusted publishing
+        run: npm install -g npm@11.21.1 --ignore-scripts
+      # download-artifact v8 fails on a digest mismatch by default.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+      # Checks the tarball's files and manifest again, re-checks npm (a no-op if this version got
+      # there since the build job), then publishes with --provenance, on `next` for a prerelease.
+      - name: Publish to npm
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+        run: node scripts/publish.mjs --tarball "$RUNNER_TEMP/release/$TARBALL"
+      - name: Tag and GitHub release
+        env:
+          DIST_TAG: ${{ needs.build.outputs.dist-tag }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "The GitHub release $tag exists already."
+            exit 0
+          fi
+          flags=()
+          if [ "$DIST_TAG" = next ]; then flags=(--prerelease --latest=false); fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$tag" --notes-file "$RUNNER_TEMP/release/release-notes.md" "${flags[@]}"

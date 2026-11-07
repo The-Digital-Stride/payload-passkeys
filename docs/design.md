@@ -265,7 +265,8 @@ All admin text goes through Payload's i18n (`config.i18n.translations` merged un
 - GitHub Actions: lint, types, unit, integration matrix (Payload minors × adapters), e2e, nightly latest/beta contract run; CodeQL; Dependabot (grouped, weekly).
 - Release, hardened as in review L9:
   - npm **trusted publishing** from a protected `release` workflow (OIDC, no npm token stored), with provenance;
-  - signed tags (**open**: `changesets/action` creates lightweight tags through the GitHub API, so the workflow does not meet this; `docs/release-setup.md` lists the options);
+  - the OIDC token is held only by the `publish` job, which installs no dependencies and restores no cache: a read-only `build` job builds, packs and checks the tarball and hands it over as an artifact, and a separate `version` job without the token opens the version PR (`docs/release-setup.md`);
+  - signed tags (**open**: the publish job's `gh release create` makes lightweight tags through the GitHub API, so the workflow does not meet this; `docs/release-setup.md` lists the options);
   - branch protection with required reviews and checks;
   - every GitHub Action pinned to a commit SHA;
   - `CODEOWNERS` on `.github/workflows/`;
@@ -333,7 +334,7 @@ v1 was built from the plan in `docs/plans/2026-11-06-v1-passkey-sign-in.md`. Whe
 9. **Smaller changes:** a stricter IPv6 check in `src/shared/rpid.ts`; `admin.meta.title` read as a string or a Next.js title object for the default `rpName`; an `ownerField` helper that makes `passkeys.user` a plain relationship with one collection and polymorphic with several; `typescript.autoGenerate` off under Vitest and e2e in the dev app.
 10. **Node.** `engines.node` is `>=22.12.0`; Payload 3.92 and later need Node `^22.23.4 || >=24.22.1` themselves (section 7).
 11. **pnpm 11** reads its settings from `pnpm-workspace.yaml`, not `.npmrc` (section 10).
-12. **Release.** The release publishes a pnpm-packed tarball with `npm publish`, because `npm publish` in the repository ignores `publishConfig.exports` (section 10). Signed tags are not produced by the workflow and need a decision (`docs/release-setup.md`).
+12. **Release.** The release publishes a pnpm-packed tarball with `npm publish`, because `npm publish` in the repository ignores `publishConfig.exports` (section 10). The tarball is built in a job without the OIDC token and published from one that installs nothing (2026-11-07). Signed tags are not produced by the workflow and need a decision (`docs/release-setup.md`).
 13. **README samples** live in `dev/readme-samples.ts`, which `pnpm typecheck` covers, and `test/unit/readmeSamples.spec.ts` fails when the README's code blocks drift from it.
 14. **Sign-out survives parallel refreshes.** Removing a passkey with "Also sign out everywhere else", and `passkeys:reset`, mark the sessions they revoke, retry the write on conflicts and confirm the result (section 4.3). Payload's own refresh could otherwise deadlock the revoke or write the attacker's session back on Postgres.
 15. **Client IP.** The IP for `rateLimit` and failure logs is the rightmost `x-forwarded-for` entry, not `x-real-ip` or the first entry, which a client behind nginx or an ALB can choose. Hosts with other set-ups pass `clientIp`.

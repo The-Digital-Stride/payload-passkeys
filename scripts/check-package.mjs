@@ -1,7 +1,10 @@
 // Packs the package as it will be published (pnpm applies publishConfig, so the packed manifest's
 // exports point at dist/), checks what is inside, then runs publint and attw on that same tarball.
-// Run after `pnpm build`: `pnpm check:package` does both. scripts/publish.mjs publishes the tarball
-// that packAndCheck returns, so what is checked is exactly what is published.
+// Run after `pnpm build`: `pnpm check:package` does both. What is checked is exactly what is
+// published: scripts/publish.mjs publishes the tarball packAndCheck returns, and the release
+// workflow checks the tarball it packed and then publishes that file.
+//
+// Usage: node scripts/check-package.mjs [tarball]   (packs dist/ first when no tarball is given)
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,8 +14,12 @@ import { pathToFileURL } from 'node:url'
 const run = (command, args, options = {}) =>
   execFileSync(command, args, { stdio: 'inherit', ...options })
 
-/** Throws, listing every problem, unless the tarball is fit to publish. */
-export const checkTarball = (tarball) => {
+/**
+ * Throws, listing every problem, unless the tarball's files and manifest are fit to publish. Needs
+ * nothing but `tar`, so the release workflow's publish job, which installs no dependencies, can
+ * run it too.
+ */
+export const checkTarballContents = (tarball) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'payload-passkeys-check-'))
   try {
     run('tar', ['-xzf', tarball, '-C', dir])
@@ -60,13 +67,17 @@ export const checkTarball = (tarball) => {
     console.log(
       `Package OK: ${files.length} files, exports ${Object.keys(manifest.exports).join(', ')}`,
     )
-
-    // Both read the tarball pnpm made, not the repo: in the repo, `exports` points at src/.
-    run('pnpm', ['exec', 'publint', 'run', tarball, '--strict'])
-    run('pnpm', ['exec', 'attw', tarball, '--profile', 'esm-only'])
   } finally {
     rmSync(dir, { force: true, recursive: true })
   }
+}
+
+/** checkTarballContents, then publint and attw. Throws unless the tarball is fit to publish. */
+export const checkTarball = (tarball) => {
+  checkTarballContents(tarball)
+  // Both read the tarball pnpm made, not the repo: in the repo, `exports` points at src/.
+  run('pnpm', ['exec', 'publint', 'run', tarball, '--strict'])
+  run('pnpm', ['exec', 'attw', tarball, '--profile', 'esm-only'])
 }
 
 /** Packs the built package into `destination`, checks it and returns the tarball's path. */
@@ -82,14 +93,16 @@ export const packAndCheck = (destination) => {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'payload-passkeys-pack-'))
+  const given = process.argv[2]
+  const dir = given ? undefined : mkdtempSync(path.join(tmpdir(), 'payload-passkeys-pack-'))
   try {
-    packAndCheck(dir)
+    if (given) checkTarball(path.resolve(given))
+    else packAndCheck(dir)
   } catch (error) {
     // The failing tool has already printed its findings.
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
   } finally {
-    rmSync(dir, { force: true, recursive: true })
+    if (dir) rmSync(dir, { force: true, recursive: true })
   }
 }
