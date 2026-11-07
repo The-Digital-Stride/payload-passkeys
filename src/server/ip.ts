@@ -2,15 +2,24 @@ import type { PayloadRequest } from 'payload'
 
 import { isIP } from 'net'
 
+/** A host's own way to find the caller's IP (the `clientIp` option). */
+export type ClientIpResolver = (req: PayloadRequest) => null | string | undefined
+
+/** The rightmost `x-forwarded-for` entry: the one the nearest proxy appended, not the client. */
+export const rightmostForwardedFor = (req: Pick<PayloadRequest, 'headers'>): null | string =>
+  req.headers.get('x-forwarded-for')?.split(',').at(-1) ?? null
+
 /**
- * The caller's IP from proxy headers. Only meaningful behind a proxy that sets these itself
- * (Vercel, Cloudflare, a configured load balancer); otherwise the client chooses it (README).
+ * The caller's IP: the host's `clientIp` resolver if set, else the rightmost `x-forwarded-for`
+ * entry. Anything that isn't an IP address is null. `x-real-ip` and the leftmost entries are
+ * whatever the client sent unless a proxy replaced them, so they are not read by default (README).
  */
-export const clientIp = (req: Pick<PayloadRequest, 'headers'>): null | string => {
-  const real = req.headers.get('x-real-ip')?.trim()
-  if (real) return real
-  const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return forwarded || null
+export const clientIp = (
+  req: PayloadRequest,
+  resolve: ClientIpResolver = rightmostForwardedFor,
+): null | string => {
+  const ip = resolve(req)?.trim()
+  return ip && isIP(ip) !== 0 ? ip : null
 }
 
 const expandIPv6 = (ip: string): null | string[] => {

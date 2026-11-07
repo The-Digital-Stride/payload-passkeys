@@ -216,7 +216,7 @@ After a password sign-in, if the user has no passkey, the browser supports platf
 - **Persistence attacks:** adding a passkey needs a fresh session or the password (4.1).
 - **Rate limiting:** Payload has no IP limiter, and serverless has no shared memory. The `rateLimit` option is called on every endpoint with an action and a key (IP, user). The README:
   - shows Vercel WAF and Upstash examples;
-  - explains that the IP comes from `x-forwarded-for` and can only be trusted behind a proxy that sets it.
+  - explains that the IP is the rightmost `x-forwarded-for` entry (the one the nearest proxy appended; `x-real-ip` and leftmost entries are client-chosen and ignored by default), that it can only be trusted behind a proxy that appends it, and that the `clientIp` option covers other set-ups.
 
   Built in:
   - per-user caps on stored passkeys (default 20) and outstanding challenges;
@@ -336,3 +336,4 @@ v1 was built from the plan in `docs/plans/2026-11-06-v1-passkey-sign-in.md`. Whe
 12. **Release.** The release publishes a pnpm-packed tarball with `npm publish`, because `npm publish` in the repository ignores `publishConfig.exports` (section 10). Signed tags are not produced by the workflow and need a decision (`docs/release-setup.md`).
 13. **README samples** live in `dev/readme-samples.ts`, which `pnpm typecheck` covers, and `test/unit/readmeSamples.spec.ts` fails when the README's code blocks drift from it.
 14. **Sign-out survives parallel refreshes.** Removing a passkey with "Also sign out everywhere else", and `passkeys:reset`, mark the sessions they revoke, retry the write on conflicts and confirm the result (section 4.3). Payload's own refresh could otherwise deadlock the revoke or write the attacker's session back on Postgres.
+15. **Client IP.** The IP for `rateLimit` and failure logs is the rightmost `x-forwarded-for` entry, not `x-real-ip` or the first entry, which a client behind nginx or an ALB can choose. Hosts with other set-ups pass `clientIp`.

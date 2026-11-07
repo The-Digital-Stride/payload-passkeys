@@ -35,6 +35,18 @@ describe('resolveOptions defaults', () => {
     })
   })
 
+  it('reads the client IP from the rightmost x-forwarded-for entry unless told otherwise', () => {
+    const req = {
+      headers: new Headers({ 'x-forwarded-for': '6.6.6.6, 203.0.113.9', 'x-real-ip': '6.6.6.6' }),
+    } as never
+    expect(resolveOptions(base(), {}).clientIp(req)).toBe('203.0.113.9')
+    const fromRealIp = (r: { headers: Headers }) => r.headers.get('x-real-ip')
+    expect(resolveOptions(base(), { clientIp: fromRealIp }).clientIp(req)).toBe('6.6.6.6')
+    expect(() => resolveOptions(base(), { clientIp: 'x-real-ip' as never })).toThrow(
+      PasskeysConfigError,
+    )
+  })
+
   it('uses admin.user, then the first auth collection', () => {
     const config = base({
       admin: { user: 'admins' },

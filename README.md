@@ -47,6 +47,7 @@ Every option is optional.
 
 | Option                       | Type                                         | Default                                                          | What it does                                                                                                                                                      |
 | ---------------------------- | -------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clientIp`                   | `(req) => string \| null \| undefined`       | the rightmost `x-forwarded-for` entry                            | Where the caller's IP comes from, for `rateLimit` and failure logs. See [Rate limiting](#rate-limiting).                                                          |
 | `collections`                | `string[]`                                   | `[admin.user]`, else the first auth collection                   | Auth collections that get passkeys. Each gets its own endpoints and fields.                                                                                       |
 | `enabled`                    | `boolean`                                    | `true`                                                           | `false` keeps the collections, fields, translations and the reset command, but adds no endpoints and no admin components. Turning it off never needs a migration. |
 | `enrolmentPrompt`            | `boolean`                                    | `true`                                                           | Offer "Sign in faster with a passkey" after a password sign-in.                                                                                                   |
@@ -146,12 +147,14 @@ Payload has no IP rate limiter, and serverless instances share no memory, so pas
 
 - `action`: `'status'`, `'register.options'`, `'register.verify'`, `'sign-in.options'`, `'sign-in.verify'`, `'reauth'`, `'rename'` or `'delete'`;
 - `key`: `<collection>:<userId>` for a signed-in request, `ip:<ip>` for an anonymous one;
-- `ip`: from `x-real-ip`, else the first `x-forwarded-for` entry, else `null`;
+- `ip`: the rightmost `x-forwarded-for` entry, or what your `clientIp` option returns; `null` when that isn't an IP address;
 - `userId` (signed-in requests only), `collection` and `req`.
 
 Return `true` to allow the request. Anything else refuses it with 429, and so does a throw: the hook fails closed.
 
-The IP is trustworthy only behind a proxy that sets those headers itself, as Vercel does. Elsewhere a client can send any value it likes, and an IP-keyed limit can be dodged.
+The rightmost `x-forwarded-for` entry is the one your nearest proxy appended, so it is the address that proxy saw. Entries to its left, and `x-real-ip`, are whatever the client sent unless a proxy replaced them, so the plugin doesn't read them by default. This is right on Vercel (one entry, set by Vercel) and behind a single nginx or load balancer that appends to `x-forwarded-for`. With no proxy at all a client can send any value, and an IP-keyed limit can be dodged.
+
+With more than one proxy, or a proxy that puts the address in another header, pass `clientIp`. For example `clientIp: (req) => req.headers.get('x-real-ip')` behind nginx with `proxy_set_header X-Real-IP $remote_addr`, or `clientIp: (req) => req.headers.get('cf-connecting-ip')` when Cloudflare is the only way in. A value that isn't an IP address becomes `null`.
 
 **Vercel WAF** with [`@vercel/firewall`](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting-sdk):
 

@@ -1,9 +1,10 @@
-import type { CollectionConfig, Config, IncomingAuthType } from 'payload'
+import type { CollectionConfig, Config, IncomingAuthType, PayloadRequest } from 'payload'
 
 import type { OnSignInHook, PasskeysPluginOptions, RateLimitHook } from '../types.js'
 
 import { DEFAULT_SLUGS } from '../shared/constants.js'
 import { normaliseOrigin, originMatchesRpID, rpIDProblem } from '../shared/rpid.js'
+import { clientIp } from './ip.js'
 
 export class PasskeysConfigError extends Error {
   constructor(message: string) {
@@ -13,6 +14,8 @@ export class PasskeysConfigError extends Error {
 }
 
 export type ResolvedOptions = {
+  /** The caller's IP, or null when it isn't one (clientIp in ip.ts, with the host's resolver). */
+  clientIp: (req: PayloadRequest) => null | string
   collections: string[]
   enabled: boolean
   enrolmentPrompt: boolean
@@ -194,7 +197,11 @@ export const resolveOptions = (config: Config, options: PasskeysPluginOptions): 
   if (!['full', 'none', 'truncated'].includes(ip))
     throw new PasskeysConfigError(`logging.ip must be 'none', 'truncated' or 'full'.`)
 
+  if (options.clientIp !== undefined && typeof options.clientIp !== 'function')
+    throw new PasskeysConfigError('clientIp must be a function of the request.')
+
   return {
+    clientIp: (req) => clientIp(req, options.clientIp),
     collections,
     enabled: options.enabled ?? true,
     enrolmentPrompt: options.enrolmentPrompt ?? true,

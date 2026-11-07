@@ -3,8 +3,6 @@ import type { PayloadRequest } from 'payload'
 import type { PasskeyAction } from '../types.js'
 import type { ResolvedOptions } from './options.js'
 
-import { clientIp } from './ip.js'
-
 /** True to go ahead. A throw, or anything but `true`, refuses with 429 (fail closed). */
 export const allowedByRateLimit = async ({
   action,
@@ -15,11 +13,11 @@ export const allowedByRateLimit = async ({
 }: {
   action: PasskeyAction
   collectionSlug: string
-  options: Pick<ResolvedOptions, 'rateLimit'>
+  options: Pick<ResolvedOptions, 'clientIp' | 'rateLimit'>
   req: PayloadRequest
   userId?: number | string
 }): Promise<boolean> => {
-  const ip = clientIp(req)
+  const ip = options.clientIp(req)
   const key = userId === undefined ? `ip:${ip ?? 'unknown'}` : `${collectionSlug}:${String(userId)}`
   try {
     return (

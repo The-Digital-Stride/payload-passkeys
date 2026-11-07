@@ -14,8 +14,9 @@ export type RateLimitArgs = {
   action: PasskeyAction
   collection: string
   /**
-   * From `x-real-ip`, else the first `x-forwarded-for` entry. Trustworthy only behind a proxy that
-   * sets these headers itself (Vercel does); otherwise a client can choose its own value.
+   * The rightmost `x-forwarded-for` entry (the one the nearest proxy appended), or what the
+   * `clientIp` option returns; null when that isn't an IP address. Trustworthy only when the
+   * nearest proxy appends or sets that header itself; otherwise a client can choose its own value.
    */
   ip: null | string
   /** `<collection>:<userId>` for signed-in calls, `ip:<ip>` for anonymous ones. */
@@ -58,6 +59,12 @@ export type OnSignInArgs = {
 export type OnSignInHook = (args: OnSignInArgs) => Promise<void> | void
 
 export type PasskeysPluginOptions = {
+  /**
+   * The caller's IP, for `rateLimit` and failure logs. Default: the rightmost `x-forwarded-for`
+   * entry. Set it when that isn't your client, for example `(req) => req.headers.get('x-real-ip')`
+   * behind nginx with `proxy_set_header X-Real-IP $remote_addr`. Non-IP values become null.
+   */
+  clientIp?: (req: PayloadRequest) => null | string | undefined
   /** Auth collections that get passkeys. Default: [admin.user] (or the first auth collection). */
   collections?: string[]
   /** false keeps the schema (fields and collections) but adds no endpoints or admin components. */

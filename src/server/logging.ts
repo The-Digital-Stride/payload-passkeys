@@ -2,7 +2,7 @@ import type { PayloadRequest } from 'payload'
 
 import type { ResolvedOptions } from './options.js'
 
-import { clientIp, formatIp } from './ip.js'
+import { formatIp } from './ip.js'
 
 export type PasskeyEvent =
   | 'passkeys.counter_regression'
@@ -39,7 +39,7 @@ export type EventFields = {
  */
 export const logEvent = (
   req: PayloadRequest,
-  options: Pick<ResolvedOptions, 'logging'>,
+  options: Pick<ResolvedOptions, 'clientIp' | 'logging'>,
   event: PasskeyEvent,
   { credentialId, ...fields }: EventFields,
 ): void => {
@@ -47,7 +47,7 @@ export const logEvent = (
   const line: Record<string, unknown> = { event, ...fields }
   if (credentialId) line.credentialIdPrefix = credentialId.slice(0, 8)
   if (failure) {
-    const ip = formatIp(clientIp(req), options.logging.ip)
+    const ip = formatIp(options.clientIp(req), options.logging.ip)
     if (ip) line.ip = ip
   }
   const level = failure || event === 'passkeys.counter_regression' ? 'warn' : 'info'
