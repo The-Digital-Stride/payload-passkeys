@@ -125,6 +125,8 @@ The **RP ID** is the domain a passkey belongs to. A browser offers a passkey onl
 
 Each `*.vercel.app` preview is its own site to a browser, and none of them is under your RP ID. On a preview, the login page shows a short note instead of the button ("Passkey sign-in isn't available at this address"), and password sign-in works as usual. To try passkeys on previews, give them a custom domain under the production domain (for example `preview.example.com`) and add that origin to `origins` and `csrf`.
 
+Every deployment that shares an RP ID must also share one passkeys database. The browser tells the password manager which passkeys the site still knows: after a sign-in with a passkey the server doesn't recognise it calls `signalUnknownCredential`, and the Passkeys section calls `signalAllAcceptedCredentials` with the account's passkeys. A preview under `example.com` with its own database doesn't know the production passkeys, so trying one there can make the password manager delete it; if that database is an older copy of production's, opening the Passkeys section can do the same to every passkey added since. Your admins would then have to sign in with their passwords and register again. Point such previews at the production database, or give them an RP ID of their own.
+
 ## CSRF
 
 Payload accepts the session cookie from any site when its `csrf` list is empty, and the list is empty unless `serverURL` or `csrf` is set. If `serverURL` isn't set, set `csrf` to every origin the admin is served from, including preview URLs:
