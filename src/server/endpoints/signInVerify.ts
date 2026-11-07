@@ -15,6 +15,7 @@ import { challengeFromClientData, parseAuthenticationResponse } from '../webauth
 
 export const signInVerifyEndpoint = (options: ResolvedOptions, collectionSlug: string) =>
   passkeyEndpoint({
+    ceremony: true,
     action: 'sign-in.verify',
     auth: 'anonymous',
     collectionSlug,

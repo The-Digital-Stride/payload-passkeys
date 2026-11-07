@@ -9,6 +9,7 @@ import { json, passkeyEndpoint } from '../http.js'
 /** Discoverable sign-in: no account named, nothing about accounts revealed (design §4.2). */
 export const signInOptionsEndpoint = (options: ResolvedOptions, collectionSlug: string) =>
   passkeyEndpoint({
+    ceremony: true,
     action: 'sign-in.options',
     auth: 'anonymous',
     collectionSlug,

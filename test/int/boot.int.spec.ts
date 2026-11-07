@@ -9,7 +9,11 @@ import { buildDevConfig } from '../../dev/buildConfig.js'
 import { passkeysPlugin } from '../../src/index.js'
 import { bootPasskeys } from '../../src/server/boot.js'
 import { getPasskeysOptions } from '../../src/server/context.js'
+import type { TestClient } from '../helpers/api.js'
+
 import config from '../configs/single.js'
+import { createClient } from '../helpers/api.js'
+import { createUser, PASSWORD } from '../helpers/users.js'
 
 const isMongo = (process.env.DATABASE_ADAPTER ?? 'mongo') === 'mongo'
 
@@ -78,17 +82,15 @@ describe('bootPasskeys', () => {
 // without the plugin's own boot step a challenge could be consumed twice (design point 17).
 describe.runIf(isMongo)('on MongoDB with the host building no indexes', () => {
   let bare: Payload
+  const bareConfig = buildDevConfig({
+    db: {
+      mongoDatabase: `payload-passkeys-noindex-${randomBytes(4).toString('hex')}`,
+      mongoIndexes: false,
+    },
+    plugin: { limits: { anonymousChallenges: 50, passkeysPerUser: 3 } },
+  })
   beforeAll(async () => {
-    bare = await getPayload({
-      config: buildDevConfig({
-        db: {
-          mongoDatabase: `payload-passkeys-noindex-${randomBytes(4).toString('hex')}`,
-          mongoIndexes: false,
-        },
-        plugin: { limits: { anonymousChallenges: 50, passkeysPerUser: 3 } },
-      }),
-      key: 'no-indexes',
-    })
+    bare = await getPayload({ config: bareConfig, key: 'no-indexes' })
   })
   afterAll(async () => {
     await bare?.db.connection?.dropDatabase()
@@ -124,8 +126,20 @@ describe.runIf(isMongo)('on MongoDB with the host building no indexes', () => {
     ).toBe(1)
   })
 
-  it('logs an error when it cannot build a unique index', async () => {
+  it('turns passkey ceremonies off when it cannot build a unique index, and back on', async () => {
     const model = (bare.db as unknown as MongooseAdapter).collections['passkey-challenge-uses']!
+    const user = await createUser(bare, 'users')
+    const anonymous = createClient(bareConfig, { payloadKey: 'no-indexes' })
+    const owner = createClient(bareConfig, { payloadKey: 'no-indexes' })
+    const ceremonies = [
+      '/sign-in/options',
+      '/sign-in/verify',
+      '/register/options',
+      '/register/verify',
+    ]
+    const call = (client: TestClient, path: string) =>
+      client.post(`/api/users/passkeys${path}`, { response: {} })
+
     await model.collection.dropIndexes()
     const doc = { challenge: 'duplicate', expiresAt: new Date() }
     await model.collection.insertMany([{ ...doc }, { ...doc }])
@@ -139,10 +153,33 @@ describe.runIf(isMongo)('on MongoDB with the host building no indexes', () => {
           ),
         }),
       )
+      // Password sign-in still works.
+      const login = await owner.post('/api/users/login', { email: user.email, password: PASSWORD })
+      expect(login.status).toBe(200)
+      for (const path of ceremonies) {
+        const res = await call(path.startsWith('/register') ? owner : anonymous, path)
+        expect([path, res.status, res.json]).toEqual([path, 503, { error: 'unavailable' }])
+      }
+      expect((await anonymous.post('/api/users/passkeys/status')).json).toEqual({
+        available: false,
+      })
+      expect((await owner.post('/api/users/passkeys/status')).json).toMatchObject({
+        available: false,
+        reason: 'indexes',
+      })
     } finally {
       error.mockRestore()
       await model.collection.deleteMany({ challenge: 'duplicate' })
     }
+
+    // A healthy boot turns them back on.
+    await bootPasskeys(bare, getPasskeysOptions(bare))
+    expect(await uniqueIndexOn(bare, 'passkey-challenge-uses', 'challenge')).toBeDefined()
+    expect((await call(anonymous, '/sign-in/options')).status).toBe(200)
+    expect((await call(owner, '/register/options')).status).toBe(200)
+    expect((await owner.post('/api/users/passkeys/status')).json).toMatchObject({
+      available: true,
+    })
   })
 })
 

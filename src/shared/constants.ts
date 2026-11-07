@@ -41,4 +41,5 @@ export type PasskeysErrorCode =
   | 'sign_in_failed'
   | 'too_many_passkeys'
   | 'unauthorised'
+  | 'unavailable'
   | 'unsupported_media_type'

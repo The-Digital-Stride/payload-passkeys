@@ -165,7 +165,7 @@ export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collecti
     )
   }
 
-  const { available, passkeys, rpID } = load.data
+  const { available, passkeys, reason, rpID } = load.data
   const canAdd = supported && available
 
   return (
@@ -190,7 +190,11 @@ export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collecti
         <p className="passkeys-note">{t('none')}</p>
       )}
       {!supported ? <p className="passkeys-note">{t('unsupportedBrowser')}</p> : null}
-      {supported && !available && rpID ? (
+      {supported && !available && reason === 'indexes' ? (
+        // Boot turned passkeys off (src/server/health.ts); the server log says why.
+        <p className="passkeys-note">{t('genericError')}</p>
+      ) : null}
+      {supported && !available && reason !== 'indexes' && rpID ? (
         <p className="passkeys-note">{t('worksOnlyOn', { rpID })}</p>
       ) : null}
       {canAdd ? (

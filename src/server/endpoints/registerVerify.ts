@@ -30,6 +30,7 @@ const ZERO_AAGUID = '00000000-0000-0000-0000-000000000000'
 
 export const registerVerifyEndpoint = (options: ResolvedOptions, collectionSlug: string) =>
   passkeyEndpoint({
+    ceremony: true,
     action: 'register.verify',
     auth: 'signed-in',
     collectionSlug,

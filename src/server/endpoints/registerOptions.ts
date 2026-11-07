@@ -13,6 +13,7 @@ import { ensureUserHandle, isFreshSession, webauthnUserNames } from '../userInfo
 
 export const registerOptionsEndpoint = (options: ResolvedOptions, collectionSlug: string) =>
   passkeyEndpoint({
+    ceremony: true,
     action: 'register.options',
     auth: 'signed-in',
     collectionSlug,

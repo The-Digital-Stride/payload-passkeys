@@ -47,7 +47,14 @@ const applySetCookie = (jar: Map<string, string>, line: string): void => {
  */
 export const createClient = (
   config: Promise<SanitizedConfig> | SanitizedConfig,
-  { origin = SERVER_URL }: { origin?: null | string } = {},
+  {
+    origin = SERVER_URL,
+    payloadKey,
+  }: {
+    origin?: null | string
+    /** The getPayload cache key of a second Payload instance in the same process. */
+    payloadKey?: string
+  } = {},
 ): TestClient => {
   const cookies = new Map<string, string>()
 
@@ -65,6 +72,7 @@ export const createClient = (
     }
     const response = await handleEndpoints({
       config,
+      payloadInstanceCacheKey: payloadKey,
       request: new Request(`${SERVER_URL}${path}`, { body, headers, method }),
     })
     for (const line of response.headers.getSetCookie()) applySetCookie(cookies, line)

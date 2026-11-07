@@ -109,7 +109,7 @@ pnpm payload migrate:create passkeys
 pnpm payload migrate
 ```
 
-MongoDB needs no migration. Replay protection rests on three unique indexes (`passkey-challenge-uses.challenge`, `passkey-challenges.challenge`, `passkeys.credentialId`), so the plugin builds them itself at boot rather than relying on `ensureIndexes`. The database user needs the `createIndex` privilege. If an index can't be built, the plugin logs an error at boot and keeps running, but without that index a challenge could be used twice: fix the permission and restart.
+MongoDB needs no migration. Replay protection rests on three unique indexes (`passkey-challenge-uses.challenge`, `passkey-challenges.challenge`, `passkeys.credentialId`), so the plugin builds them itself at boot rather than relying on `ensureIndexes`. The database user needs the `createIndex` privilege. If an index can't be built, the plugin logs an error at boot and turns passkey sign-in and registration off (they answer 503 and the button shows that passkeys aren't available), because without that index a challenge could be used twice. Password sign-in keeps working. Fix the permission or remove the duplicates, and restart.
 
 ## Domains, RP ID and preview deployments
 

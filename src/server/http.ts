@@ -7,6 +7,7 @@ import type { PasskeysErrorCode } from '../shared/constants.js'
 import type { PasskeyAction } from '../types.js'
 import type { ResolvedOptions } from './options.js'
 
+import { ceremoniesDisabledReason } from './health.js'
 import { allowedByRateLimit } from './rateLimit.js'
 
 /** Registration responses are a few KB; anything bigger is not a WebAuthn response. */
@@ -142,6 +143,7 @@ export type HandlerArgs<A extends 'anonymous' | 'optional' | 'signed-in'> = {
 export const passkeyEndpoint = <A extends 'anonymous' | 'optional' | 'signed-in'>({
   action,
   auth,
+  ceremony = false,
   checkOrigin = true,
   collectionSlug,
   handler,
@@ -150,6 +152,8 @@ export const passkeyEndpoint = <A extends 'anonymous' | 'optional' | 'signed-in'
 }: {
   action: PasskeyAction
   auth: A
+  /** A sign-in or registration ceremony: answers 503 `unavailable` while boot turned them off. */
+  ceremony?: boolean
   /** `status` alone skips it: it reports an origin mismatch instead of refusing. */
   checkOrigin?: boolean
   collectionSlug: string
@@ -159,6 +163,9 @@ export const passkeyEndpoint = <A extends 'anonymous' | 'optional' | 'signed-in'
 }): Endpoint => ({
   handler: async (req) => {
     try {
+      if (ceremony && ceremoniesDisabledReason(req.payload)) {
+        throw new EndpointError(503, 'unavailable')
+      }
       const body = await readJsonBody(req)
       if (checkOrigin && !originAllowed(req, options.origins))
         throw new EndpointError(403, 'forbidden_origin')

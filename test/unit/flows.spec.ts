@@ -75,6 +75,26 @@ describe('signInFlow', () => {
       }),
     ).toEqual({ message: 'rateLimited', ok: false })
   })
+
+  it('shows the generic failure while passkeys are off (503 unavailable)', async () => {
+    const off = browser()
+    expect(
+      await signInFlow({
+        api: vi.fn(async () => reply(503, { error: 'unavailable' })),
+        browser: off,
+      }),
+    ).toEqual({ message: 'signInFailed', ok: false })
+    expect(off.startAuthentication).not.toHaveBeenCalled()
+    expect(
+      await registerFlow({
+        api: vi.fn(async () => reply(503, { error: 'unavailable' })),
+        askPassword: vi.fn(async () => null),
+        browser: off,
+        onReauthenticated: vi.fn(),
+      }),
+    ).toEqual({ message: 'addFailed', ok: false })
+    expect(off.startRegistration).not.toHaveBeenCalled()
+  })
 })
 
 describe('registerFlow', () => {
