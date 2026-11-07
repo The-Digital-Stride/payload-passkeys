@@ -48,6 +48,11 @@ export type OnSignInArgs = {
   collection: string
   passkey?: PublicPasskey
   req: PayloadRequest
+  /**
+   * A copy of the stored user after the beforeLogin hooks, without Payload's internal fields
+   * (`hash`, `salt`, `sessions`, `apiKey`, `apiKeyIndex`, the reset and verification tokens,
+   * `loginAttempts`, `lockUntil`, `passkeyUserHandle`). Changing it changes nothing.
+   */
   user: Record<string, unknown>
 }
 

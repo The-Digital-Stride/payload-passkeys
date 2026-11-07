@@ -4,6 +4,7 @@ import { getPayload } from 'payload'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { testHooks } from '../../dev/testHooks.js'
+import { SECRET_USER_KEYS } from '../../src/server/mintSession.js'
 import config from '../configs/single.js'
 import { createClient, SERVER_URL } from '../helpers/api.js'
 import { passwordClient, registerPasskey, signInWithPasskey } from '../helpers/ceremonies.js'
@@ -133,6 +134,15 @@ describe('sign-in/verify', () => {
     await signInWithPasskey(createClient(config), authenticator)
     expect(seen).toMatchObject({ credentialId: authenticator.credentialIds()[0] })
     expect(findSecretKeys(seen)).toEqual([])
+  })
+
+  it("passes onSignIn the user without Payload's internal fields", async () => {
+    const { authenticator, user } = await enrolled()
+    let seen: Record<string, unknown> | undefined
+    testHooks.onSignIn = (args) => void (seen = args.user as Record<string, unknown>)
+    await signInWithPasskey(createClient(config), authenticator)
+    expect(seen).toMatchObject({ email: user.email, id: user.id })
+    for (const key of SECRET_USER_KEYS) expect(seen).not.toHaveProperty(key)
   })
 })
 

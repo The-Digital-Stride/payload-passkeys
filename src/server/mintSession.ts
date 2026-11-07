@@ -69,6 +69,13 @@ export const SECRET_USER_KEYS = [
   USER_HANDLE_FIELD,
 ] as const
 
+/** A shallow copy without SECRET_USER_KEYS. */
+export const withoutSecrets = (user: Record<string, unknown>): Record<string, unknown> => {
+  const copy: Record<string, unknown> = { ...user }
+  for (const key of SECRET_USER_KEYS) delete copy[key]
+  return copy
+}
+
 export const authCollectionConfig = (
   req: PayloadRequest,
   slug: string,
@@ -135,9 +142,7 @@ export const toResponseUser = async ({
       collection: collectionSlug,
     } as unknown as TypedUser,
   })) as Record<string, unknown>
-  const clean: Record<string, unknown> = { ...doc }
-  for (const key of SECRET_USER_KEYS) delete clean[key]
-  return { ...clean, _strategy: 'local-jwt', collection: collectionSlug }
+  return { ...withoutSecrets(doc), _strategy: 'local-jwt', collection: collectionSlug }
 }
 
 /**
@@ -258,7 +263,10 @@ export const mintSession = async ({
           user: hookedUser as never,
         })) as RawUser) || hookedUser
     }
-    if (onSignIn) await onSignIn({ collection: collectionSlug, passkey, req, user: hookedUser })
+    if (onSignIn) {
+      // A copy without hash, salt, sessions and the rest, so a host can't log them by accident.
+      await onSignIn({ collection: collectionSlug, passkey, req, user: withoutSecrets(hookedUser) })
+    }
 
     const { exp, token } = await jwtSign({
       fieldsToSign,

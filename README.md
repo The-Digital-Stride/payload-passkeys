@@ -249,7 +249,7 @@ export const withAudit = passkeysPlugin({
 })
 ```
 
-`user` is the stored user document, as `beforeLogin` hooks receive it, internal fields included: don't log or return it whole. `passkey` carries the passkey's public details only. To write to a collection from `onSignIn`, pass `req` so the write joins the sign-in transaction.
+`user` is a copy of the stored user document after the `beforeLogin` hooks, without Payload's internal fields (`hash`, `salt`, `sessions`, `apiKey`, `apiKeyIndex`, the reset and verification tokens, `loginAttempts`, `lockUntil` and `passkeyUserHandle`); changing it changes nothing. `passkey` carries the passkey's public details only. To write to a collection from `onSignIn`, pass `req` so the write joins the sign-in transaction.
 
 **A password lockout doesn't block a passkey.** After too many wrong passwords Payload locks the account (`lockUntil`). A passkey can't be guessed, and honouring the lock would let anyone who knows an admin's email keep them out indefinitely. So a passkey sign-in goes ahead, logs `passkeys.signed_in_while_locked`, and clears the failed-attempt count and the lock, as a successful password sign-in would.
 
