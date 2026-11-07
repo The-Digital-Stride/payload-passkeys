@@ -3,6 +3,7 @@ import type { CollectionBeforeDeleteHook, CollectionConfig, Field } from 'payloa
 import type { ResolvedOptions } from '../server/options.js'
 
 import { logEvent } from '../server/logging.js'
+import { refuseRevokedRefresh } from '../server/sessions.js'
 import { ownPasskeysWhere } from './passkeys.js'
 import { MANAGER_FIELD, PACKAGE_NAME, USER_HANDLE_FIELD } from '../shared/constants.js'
 
@@ -79,6 +80,8 @@ export const withPasskeyFields = (
   ],
   hooks: {
     ...collection.hooks,
+    // Always, even when disabled: the reset command revokes sessions too.
+    afterRefresh: [...(collection.hooks?.afterRefresh ?? []), refuseRevokedRefresh(options)],
     beforeDelete: [
       ...(collection.hooks?.beforeDelete ?? []),
       removePasskeysOfUser(options, collection.slug),

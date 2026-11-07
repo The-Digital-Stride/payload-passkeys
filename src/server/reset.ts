@@ -1,10 +1,10 @@
 import type { Payload, Where } from 'payload'
 
-import { commitTransaction, createLocalReq, initTransaction, killTransaction } from 'payload'
+import { createLocalReq } from 'payload'
 
 import { ownPasskeysWhere } from '../collections/passkeys.js'
 import { getPasskeysOptions } from './context.js'
-import { revokeSessions } from './mintSession.js'
+import { confirmSignedOut, revokeAndMarkSessions, runSessionWrite } from './sessions.js'
 
 /**
  * For a site owner locked out of their passkeys. Removes the user's passkeys and pending
@@ -44,32 +44,29 @@ export const resetPasskeys = async ({
   const userId = (docs[0] as { id: number | string }).id
 
   const req = await createLocalReq({}, payload)
-  // One transaction where the adapter has them, so a failure leaves nothing half-done.
-  const shouldCommit = await initTransaction(req)
-  let removedPasskeys: number
-  let removedSessions: number
-  try {
-    const passkeyWhere = ownPasskeysWhere(options, collection, userId)
-    const counted = await payload.db.count({
-      collection: options.slugs.passkeys,
-      req,
-      where: passkeyWhere,
-    })
-    removedPasskeys = counted.totalDocs
-    await payload.db.deleteMany({ collection: options.slugs.passkeys, req, where: passkeyWhere })
-    await payload.db.deleteMany({
-      collection: options.slugs.challenges,
-      req,
-      where: {
-        and: [{ authCollection: { equals: collection } }, { userId: { equals: String(userId) } }],
-      },
-    })
-    removedSessions = await revokeSessions({ collectionSlug: collection, req, userId })
-    if (shouldCommit) await commitTransaction(req)
-  } catch (error) {
-    await killTransaction(req)
-    throw error
-  }
+  const passkeyWhere = ownPasskeysWhere(options, collection, userId)
+  const removedPasskeys = (
+    await payload.db.count({ collection: options.slugs.passkeys, req, where: passkeyWhere })
+  ).totalDocs
+  const sessionArgs = { collectionSlug: collection, label: 'reset', options, req, userId }
+  // One transaction where it helps, so a failure leaves nothing half-done, retried when a parallel
+  // refresh conflicts; then re-read until no session is left (src/server/sessions.ts).
+  let removedSessions = await runSessionWrite({
+    label: 'reset',
+    req,
+    work: async () => {
+      await payload.db.deleteMany({ collection: options.slugs.passkeys, req, where: passkeyWhere })
+      await payload.db.deleteMany({
+        collection: options.slugs.challenges,
+        req,
+        where: {
+          and: [{ authCollection: { equals: collection } }, { userId: { equals: String(userId) } }],
+        },
+      })
+      return revokeAndMarkSessions(sessionArgs)
+    },
+  })
+  removedSessions += await confirmSignedOut(sessionArgs)
   payload.logger.info({
     collection,
     event: 'passkeys.reset',

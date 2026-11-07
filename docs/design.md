@@ -88,12 +88,13 @@ It warns at boot when `csrf` is empty, and in production when `rateLimit` is lef
   - A separate collection, not fields on the user, because Payload's login and refresh write back the whole raw user document and would race the counter and `lastUsedAt`.
 - `passkey-challenges`: `admin.hidden`, `graphQL: false`, every API access false.
   - Fields: `challenge` (text, unique), `type` (`registration` | `authentication`), `authCollection` (text), `userId` (text, optional; a relationship can't span collections), `userHandle` (text, optional), `browserKeyHash` (text), `expiresAt` (date, indexed).
-- `passkey-challenge-uses`: `admin.hidden`, `graphQL: false`, every API access false. One field, `challenge` (text, unique), plus `expiresAt`. Consuming a challenge is a **create** here: a unique-constraint error means the challenge was already used. A unique insert is atomic on every adapter, whereas find-then-delete is not on Postgres, SQLite or the Local API (M3). Pruned with the challenges.
+- `passkey-challenge-uses`: `admin.hidden`, `graphQL: false`, every API access false. One field, `challenge` (text, unique), plus `expiresAt`. Consuming a challenge is a **create** here: a unique-constraint error means the challenge was already used. A unique insert is atomic on every adapter, whereas find-then-delete is not on Postgres, SQLite or the Local API (M3). Pruned with the challenges. It also holds `session:<collection>:<sid>` rows marking sessions the plugin revoked (section 4.3), kept for one token lifetime.
 
 **Fields on each auth collection:**
 
 - `passkeyUserHandle`: text, hidden, all field access false, **not unique** (it is never queried, and Mongo's sparse unique index collides on explicit nulls; 512 random bits). 64 random bytes (base64url), created in `register/options` when the user has none, and copied onto each passkey row, so a whole-document write-back racing the first registration can't orphan a passkey (L4). It is the WebAuthn `user.id`, so the email never reaches an authenticator.
 - `passkeysManager`: a `ui` field rendering the Passkeys section on the Account page and the user edit view (own account only).
+- An `afterRefresh` hook that refuses (403) to refresh a session the plugin revoked (section 4.3).
 - A `beforeDelete` hook that removes the user's passkeys and pending challenges inside the delete's transaction. Not `afterDelete`: on SQL the user's row can't go first (`passkeys.user_id` is `NOT NULL` with one collection, and the polymorphic `_rels` rows cascade away before an `afterDelete` hook could find them). Errors propagate, so a user is never deleted with passkeys left behind. The reverse can happen: Payload checks the document lock after `beforeDelete`, so on an adapter without transactions (SQLite by default, a standalone MongoDB) a delete that the lock then refuses has already removed the passkeys. That fails safe (the password still works) and is logged as `passkeys.removed` with `reason: user_deleted`.
 
 **Endpoints** (collection endpoints on each auth collection, so `/api/<slug>/passkeys/...`; all POST, JSON body read by the plugin's own bounded reader, `readJsonBody` in `src/server/http.ts`: JSON only, at most 64 KB whether or not `Content-Length` is sent, and it sets `req.data` and `req.json` so hooks still work):
@@ -178,6 +179,14 @@ Every failure the user sees is one generic message ("That passkey couldn't be us
 The Passkeys section lists each passkey with provider name (from the AAGUID, at display time) and a generic passkey icon, the name, created and last used dates, and whether it is synced. Rename inline; remove with a confirmation that names what remains. Removing the last passkey says the password still works. It shows only on the signed-in user's own document.
 
 The remove dialog has an "Also sign out everywhere" tick box. It is ticked by default when the passkey was used in the last 24 hours, so removing a planted passkey also ends the sessions it made (M6).
+
+Ending those sessions has to survive Payload's refresh, which reads the user and writes the whole `sessions` list back inside a transaction. A revoke racing a stream of refreshes can fail (on Postgres, a deadlock or a unique violation on `users_sessions.id`), or be undone by a refresh that read the list before the revoke committed and writes it after; Postgres's READ COMMITTED allows that. So `src/server/sessions.ts`:
+
+- revokes first and deletes the passkey second, in one transaction where it helps (Drizzle; not MongoDB, where a transaction fails at once against another's uncommitted write and a refresh stream would starve it, while a plain write waits and makes the racing refresh abort), and retries the whole thing up to six times with backoff and jitter on a deadlock, serialization failure, unique violation or write conflict;
+- writes a marker per revoked session in `passkey-challenge-uses`, and an `afterRefresh` hook on each auth collection refuses a marked session. The hook runs inside the refresh's transaction after its write, so its throw rolls the write back; without a transaction it removes the session again first;
+- then re-reads the user until only the current session is left, revoking whatever came back.
+
+When that can't be done the endpoint answers 503 `{ error: 'retry' }` and the client shows "The passkey wasn't removed. Try again." If the write itself failed, the passkey is still there. If only the final check failed, the passkey is gone, `passkeys.removed` is logged with `reason: sign_out_unconfirmed`, and the error is logged. `passkeys:reset` uses the same path. `test/int/signOutEverywhere.int.spec.ts` runs four parallel refresh loops against the removal on all three adapters.
 
 ### 4.4 Enrolment prompt
 
@@ -326,3 +335,4 @@ v1 was built from the plan in `docs/plans/2026-11-06-v1-passkey-sign-in.md`. Whe
 11. **pnpm 11** reads its settings from `pnpm-workspace.yaml`, not `.npmrc` (section 10).
 12. **Release.** The release publishes a pnpm-packed tarball with `npm publish`, because `npm publish` in the repository ignores `publishConfig.exports` (section 10). Signed tags are not produced by the workflow and need a decision (`docs/release-setup.md`).
 13. **README samples** live in `dev/readme-samples.ts`, which `pnpm typecheck` covers, and `test/unit/readmeSamples.spec.ts` fails when the README's code blocks drift from it.
+14. **Sign-out survives parallel refreshes.** Removing a passkey with "Also sign out everywhere else", and `passkeys:reset`, mark the sessions they revoke, retry the write on conflicts and confirm the result (section 4.3). Payload's own refresh could otherwise deadlock the revoke or write the attacker's session back on Postgres.

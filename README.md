@@ -11,7 +11,7 @@ The plugin adds:
 - a **Sign in with a passkey** button under the login form;
 - a **Passkeys** section on the account page, to add, rename and remove passkeys;
 - a dismissible "Sign in faster with a passkey" prompt after a password sign-in;
-- three hidden collections (`passkeys`, `passkey-challenges`, `passkey-challenge-uses`) and a hidden `passkeyUserHandle` field on each configured auth collection;
+- three hidden collections (`passkeys`, `passkey-challenges`, `passkey-challenge-uses`) and, on each configured auth collection, a hidden `passkeyUserHandle` field, a `beforeDelete` hook that removes a deleted user's passkeys, and an `afterRefresh` hook that refuses to refresh a session the plugin has signed out;
 - a recovery command, `payload passkeys:reset`.
 
 ## Requirements
@@ -199,16 +199,16 @@ Built in, whatever the hook does: at most `limits.passkeysPerUser` passkeys per 
 
 Each configured collection gets these endpoints, all `POST` with a JSON body, under `/api/<collection>/passkeys/`:
 
-| Path               | Caller                    | What it does                                                                                                                                                                    |
-| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`           | anyone                    | `{ available }`: whether passkeys work at the caller's origin. The signed-in owner also gets their passkeys, the RP ID and the reason passkeys are unavailable.                 |
-| `register/options` | signed in, recent sign-in | Options for `navigator.credentials.create()`. Answers 403 `reauth_required` when the sign-in is older than `freshSessionMinutes`.                                               |
-| `reauth`           | signed in                 | `{ password }`. A real Payload sign-in for the session's own account, with Payload's attempt counting and lockout. Moves the browser onto the new session and ends the old one. |
-| `register/verify`  | signed in                 | Verifies and stores a new passkey.                                                                                                                                              |
-| `sign-in/options`  | anyone                    | Options for `navigator.credentials.get()`, naming no account.                                                                                                                   |
-| `sign-in/verify`   | anyone                    | Verifies the passkey and signs in.                                                                                                                                              |
-| `rename`           | signed in, owner          | `{ id, name }`.                                                                                                                                                                 |
-| `delete`           | signed in, owner          | `{ id, signOutOtherSessions? }`. The only way to remove a passkey: REST access to the `passkeys` collection is closed.                                                          |
+| Path               | Caller                    | What it does                                                                                                                                                                          |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`           | anyone                    | `{ available }`: whether passkeys work at the caller's origin. The signed-in owner also gets their passkeys, the RP ID and the reason passkeys are unavailable.                       |
+| `register/options` | signed in, recent sign-in | Options for `navigator.credentials.create()`. Answers 403 `reauth_required` when the sign-in is older than `freshSessionMinutes`.                                                     |
+| `reauth`           | signed in                 | `{ password }`. A real Payload sign-in for the session's own account, with Payload's attempt counting and lockout. Moves the browser onto the new session and ends the old one.       |
+| `register/verify`  | signed in                 | Verifies and stores a new passkey.                                                                                                                                                    |
+| `sign-in/options`  | anyone                    | Options for `navigator.credentials.get()`, naming no account.                                                                                                                         |
+| `sign-in/verify`   | anyone                    | Verifies the passkey and signs in.                                                                                                                                                    |
+| `rename`           | signed in, owner          | `{ id, name }`.                                                                                                                                                                       |
+| `delete`           | signed in, owner          | `{ id, signOutOtherSessions? }`. The only way to remove a passkey: REST access to the `passkeys` collection is closed. Answers 503 `retry` when the other sessions couldn't be ended. |
 
 Every endpoint accepts only `Content-Type: application/json` (415 otherwise) and bodies up to 64 KB (413). Every endpoint except `status` requires an `Origin` in `origins`, or no `Origin` and `Sec-Fetch-Site: same-origin` (403). Signed-in endpoints require the browser's session cookie: an API key or a token in an `Authorization` header is refused, so a leaked key can't manage passkeys.
 
