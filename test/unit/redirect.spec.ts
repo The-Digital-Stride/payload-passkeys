@@ -37,6 +37,15 @@ describe('safeAdminRedirect', () => {
     expect(safeAdminRedirect('/anything', '/')).toBe('/anything')
   })
 
+  // getSafeRedirect refuses an encoded slash after the first; resolving dot segments can bring one
+  // there (`/%2e/%2fevil.test` becomes `/%2fevil.test`), so the resolved path is checked again.
+  it.each(['/%2fevil.test', '/%2e/%2fevil.test', '/./%2F%2Fevil.test', '/%2e/%2F%2Fevil.test'])(
+    'sends %j to the admin root when the admin route is /',
+    (input) => {
+      expect(safeAdminRedirect(input, '/')).toBe('/')
+    },
+  )
+
   it.each([
     ['/.//evil.test', '/'],
     ['/admin/..//evil.test', ''],

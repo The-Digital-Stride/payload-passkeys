@@ -30,5 +30,11 @@ export const safeAdminRedirect = (redirectTo: unknown, adminRoute = '/admin'): s
   // origin. getSafeRedirect only refuses that before resolution, so check again after it.
   if (/^\/[/\\]/.test(pathname)) return admin
   const inside = admin === '/' || pathname === admin || pathname.startsWith(`${admin}/`)
-  return inside ? `${pathname}${search}${hash}` : admin
+  if (!inside) return admin
+  // Resolution can also bring something getSafeRedirect refuses to the front (`/%2e/%2fevil.test`
+  // becomes `/%2fevil.test`), so the resolved result must pass it again, unchanged.
+  const resolved = `${pathname}${search}${hash}`
+  return getSafeRedirect({ fallbackTo: admin, redirectTo: resolved }) === resolved
+    ? resolved
+    : admin
 }
