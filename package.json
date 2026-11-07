@@ -1,0 +1,141 @@
+{
+  "name": "@the-digital-stride/payload-passkeys",
+  "version": "0.0.0",
+  "description": "Passkey (WebAuthn) sign-in for the Payload CMS admin, alongside email and password.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "payload",
+    "payload-plugin",
+    "passkeys",
+    "webauthn"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/The-Digital-Stride/payload-passkeys.git"
+  },
+  "sideEffects": [
+    "*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    },
+    "./rsc": {
+      "types": "./src/exports/rsc.ts",
+      "import": "./src/exports/rsc.ts",
+      "default": "./src/exports/rsc.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "build": "pnpm clean && pnpm copyfiles && pnpm build:types && pnpm build:swc",
+    "build:aaguids": "node scripts/build-aaguids.mjs",
+    "build:swc": "swc ./src -d ./dist --config-file .swcrc --strip-leading-paths",
+    "build:types": "tsc --outDir dist --rootDir ./src",
+    "changeset": "changeset",
+    "check:package": "pnpm build && node scripts/check-package.mjs",
+    "clean": "rimraf --glob dist \"*.tsbuildinfo\"",
+    "copyfiles": "copyfiles -u 1 \"src/**/*.{css,json,svg}\" \"src/**/*.d.css.ts\" dist/",
+    "dev": "next dev dev --turbo",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix && prettier --write .",
+    "prepublishOnly": "node -e 'console.error(\"Publish with `pnpm release` (it publishes a checked tarball).\"); process.exit(1)'",
+    "release": "pnpm build && node scripts/publish.mjs",
+    "test": "pnpm test:unit && pnpm test:int && pnpm test:e2e",
+    "test:e2e": "playwright test",
+    "test:int": "vitest run --project int",
+    "test:unit": "vitest run --project unit",
+    "typecheck": "tsc --noEmit -p dev/tsconfig.json"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "14.0.0",
+    "@simplewebauthn/server": "14.0.3"
+  },
+  "peerDependencies": {
+    "@payloadcms/ui": ">=3.90.0 <4",
+    "next": ">=15.4.8 <17",
+    "payload": ">=3.90.0 <4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@changesets/changelog-github": "1.0.1",
+    "@changesets/cli": "3.0.3",
+    "@payloadcms/db-mongodb": "3.90.2",
+    "@payloadcms/db-postgres": "3.90.2",
+    "@payloadcms/db-sqlite": "3.90.2",
+    "@payloadcms/next": "3.90.2",
+    "@payloadcms/ui": "3.90.2",
+    "@playwright/test": "1.64.1",
+    "@swc-node/register": "1.10.9",
+    "@swc/cli": "0.6.0",
+    "@types/node": "22.20.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "copyfiles": "2.4.1",
+    "cross-env": "10.1.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.1",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "graphql": "16.8.1",
+    "mongodb-memory-server": "10.1.4",
+    "next": "16.4.1",
+    "payload": "3.90.2",
+    "prettier": "3.9.6",
+    "publint": "0.3.25",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "rimraf": "6.0.1",
+    "typescript": "5.7.3",
+    "vite-tsconfig-paths": "6.1.1",
+    "vitest": "5.0.4",
+    "yaml": "2.9.1"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=11"
+  },
+  "packageManager": "pnpm@11.28.10",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
+      },
+      "./rsc": {
+        "types": "./dist/exports/rsc.d.ts",
+        "import": "./dist/exports/rsc.js",
+        "default": "./dist/exports/rsc.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  }
+}

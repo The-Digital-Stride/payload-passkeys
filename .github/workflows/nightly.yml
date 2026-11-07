@@ -1,0 +1,71 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [mongo, sqlite, postgres]
+        payload: [latest, beta]
+    # beta (the next major) is outside the peer range and informational: it may fail without
+    # failing the run, so only a `latest` failure reaches the report job.
+    continue-on-error: ${{ matrix.payload == 'beta' }}
+    name: contract (payload ${{ matrix.payload }}, ${{ matrix.adapter }})
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: payload_passkeys
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+        ports: ['5432:5432']
+    env:
+      DATABASE_ADAPTER: ${{ matrix.adapter }}
+      # Postgres only; the int suite refuses a non-local URL (test/helpers/testDatabase.ts).
+      PAYLOAD_TEST_DATABASE_URL: ${{ matrix.adapter == 'postgres' && 'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # Under pnpm's seven-day minimumReleaseAge, a dist-tag resolves to the newest version that
+      # is at least a week old (checked with pnpm 11.28.10 on 2026-11-06: latest gave 3.92.1 while
+      # the tag pointed at 3.93.0, and beta gave 4.0.0-beta.6 while it pointed at beta.7).
+      - name: Use payload@${{ matrix.payload }}
+        env:
+          PAYLOAD_TAG: ${{ matrix.payload }}
+        run: |
+          node scripts/use-payload-version.mjs "$PAYLOAD_TAG"
+          echo "Installed payload $(node -p "require('./node_modules/payload/package.json').version")"
+      - name: Contract first, then everything
+        run: |
+          pnpm test:int test/int/mintSession.contract.int.spec.ts test/int/reauthenticate.contract.int.spec.ts test/int/revokeSessions.contract.int.spec.ts
+          pnpm test:int
+
+  report:
+    needs: contract
+    if: failure()
+    permissions:
+      issues: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Open or update the nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing=$(gh issue list -R "$GITHUB_REPOSITORY" --label nightly --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then gh issue comment "$existing" -R "$GITHUB_REPOSITORY" --body "Failed again: $RUN_URL"
+          else gh issue create -R "$GITHUB_REPOSITORY" --label nightly --title "Nightly contract run failed against payload@latest" --body "$RUN_URL"; fi

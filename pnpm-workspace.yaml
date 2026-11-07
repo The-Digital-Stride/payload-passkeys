@@ -1,0 +1,21 @@
+packages:
+  - '.'
+
+# Wait a week before installing any newly published version (review L9). Minutes.
+minimumReleaseAge: 10080
+
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+  mongodb-memory-server: true
+  unrs-resolver: true
+
+# Moved from .npmrc: pnpm 11 reads only auth settings from .npmrc.
+engineStrict: true
+saveExact: true
+
+# From payload-starter: Turbopack (Next 16.1+) copies serverExternalPackages into
+# .next/dev/node_modules/<pkg>-<hash>/, severing pnpm symlinks so their deps stop resolving
+# (vercel/next.js#87737). The dev app needs a flat node_modules. Task 37 checks the published
+# package resolves without it.
+shamefullyHoist: true

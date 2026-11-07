@@ -1,0 +1,265 @@
+/* One stylesheet for every passkeys component. Payload's own CSS variables only, so the admin's
+   light and dark themes apply; class names are passkeys-* so they can't collide. */
+
+.passkeys-note,
+.passkeys-error,
+.passkeys-status {
+  margin: 0;
+}
+
+.passkeys-note {
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-error {
+  color: var(--theme-error-500);
+}
+
+.passkeys-status {
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-status:empty {
+  display: none;
+}
+
+/* Login page */
+
+.passkeys-sign-in {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 2);
+  width: 100%;
+  margin-top: var(--base);
+}
+
+.passkeys-sign-in__or {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--base) / 2);
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-sign-in__or::before,
+.passkeys-sign-in__or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--theme-elevation-150);
+}
+
+.passkeys-sign-in__button {
+  width: 100%;
+}
+
+/* The Passkeys section (account page) */
+
+/* Spaced like Payload's own group fields, which sit inside the same .render-fields. */
+.passkeys-manager {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 2);
+  margin-bottom: calc(var(--spacing-field, var(--base)) * 2);
+}
+
+.passkeys-manager:not(:first-child) {
+  margin-top: calc(var(--spacing-field, var(--base)) * 2);
+}
+
+.passkeys-manager__title {
+  margin: 0;
+}
+
+.passkeys-manager__description {
+  margin: 0;
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-manager__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--base) / 2);
+}
+
+.passkeys-skeleton {
+  height: calc(var(--base) * 2.5);
+  border-radius: var(--style-radius-s);
+  background: var(--theme-elevation-50);
+}
+
+.passkeys-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--theme-elevation-150);
+  border-radius: var(--style-radius-s);
+}
+
+.passkeys-row {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--base) / 2);
+  padding: calc(var(--base) / 2) calc(var(--base) * 0.75);
+}
+
+.passkeys-row + .passkeys-row {
+  border-top: 1px solid var(--theme-elevation-150);
+}
+
+.passkeys-row__icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-row__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--base) / 4);
+  min-width: 0;
+}
+
+.passkeys-row__name,
+.passkeys-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--base) / 4) calc(var(--base) / 2);
+  margin: 0;
+}
+
+.passkeys-row__name > span:first-child {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.passkeys-row__provider,
+.passkeys-row__meta {
+  color: var(--theme-elevation-500);
+}
+
+.passkeys-row__actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: calc(var(--base) / 4);
+}
+
+.passkeys-pill {
+  padding: 0 calc(var(--base) / 3);
+  border-radius: var(--style-radius-s);
+  background: var(--theme-elevation-100);
+  color: var(--theme-elevation-800);
+  font-size: 0.85em;
+}
+
+.passkeys-field .field-label {
+  display: block;
+  margin-bottom: calc(var(--base) / 4);
+}
+
+.passkeys-remove {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 2);
+}
+
+.passkeys-remove > p {
+  margin: 0;
+}
+
+/* The password prompt (a Payload modal) */
+
+.passkeys-modal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.passkeys-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--theme-bg);
+  opacity: 0.75;
+}
+
+.passkeys-modal__wrapper {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: calc(var(--base) * 24);
+  padding: calc(var(--base) * 2);
+}
+
+.passkeys-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 2);
+}
+
+.passkeys-modal__body > h2,
+.passkeys-modal__body > p {
+  margin: 0;
+}
+
+.passkeys-modal__actions {
+  display: flex;
+  gap: calc(var(--base) / 2);
+  margin-top: calc(var(--base) / 2);
+}
+
+@media (max-width: 768px) {
+  .passkeys-row {
+    flex-wrap: wrap;
+  }
+
+  .passkeys-row__actions {
+    width: 100%;
+    padding-left: calc(20px + var(--base) / 2);
+  }
+}
+
+/* The enrolment prompt: a non-modal card, above the nav and below modals */
+
+.passkeys-enrol {
+  position: fixed;
+  right: var(--base);
+  bottom: var(--base);
+  z-index: calc(var(--z-nav) + 1);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 2);
+  width: min(calc(var(--base) * 20), calc(100vw - var(--base) * 2));
+  padding: var(--base);
+  border: 1px solid var(--theme-elevation-150);
+  border-radius: var(--style-radius-m);
+  background: var(--theme-elevation-0);
+  box-shadow: 0 4px 24px rgb(0 0 0 / 15%);
+}
+
+.passkeys-enrol__title,
+.passkeys-enrol__body {
+  margin: 0;
+}
+
+.passkeys-enrol__title {
+  font-size: 1.1rem;
+}
+
+.passkeys-enrol__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--base) / 2);
+}
+
+@media (max-width: 768px) {
+  .passkeys-enrol {
+    right: 50%;
+    transform: translateX(50%);
+  }
+}

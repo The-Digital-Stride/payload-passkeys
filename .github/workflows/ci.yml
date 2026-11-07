@@ -1,0 +1,149 @@
+name: CI
+
+# Node versions. package.json keeps `engines.node` at >=22.12.0: the plugin itself runs there with
+# Payload 3.90 and 3.91. Payload 3.92 and later require Node ^22.23.4 || >=24.22.1 in their own
+# `engines`; that is the host's constraint, not the plugin's. setup-node resolves '22' and '24' to
+# the newest release of each line (22.23.4 and 24.22.2 on 2026-11-06), which satisfies it, and
+# pnpm's engineStrict would fail the install if it ever didn't.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Registry signatures
+        run: npm audit signatures
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test:unit
+      # Builds (clean, types, swc), packs and checks the tarball, then runs publint and attw on it.
+      - run: pnpm check:package
+      # Neither generator connects to a database (payload/dist/bin: generate:types compiles the
+      # config to JSON Schema, generate:importmap walks the admin components), so no service is
+      # needed. DATABASE_ADAPTER is set to the default on purpose: the committed types come from
+      # the MongoDB adapter (string IDs), and an SQL adapter would rewrite them with numeric IDs.
+      - name: Generated files are committed
+        env:
+          DATABASE_ADAPTER: mongo
+        run: |
+          pnpm dev:generate-importmap
+          pnpm dev:generate-types
+          git diff --exit-code dev
+          untracked="$(git status --porcelain --untracked-files=all dev)"
+          if [ -n "$untracked" ]; then echo "$untracked"; exit 1; fi
+
+  integration:
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [mongo, sqlite, postgres]
+        payload: ['3.90.2', '3.91.0', '3.92.1', '3.93.0']
+        node: ['22']
+        include:
+          - adapter: mongo
+            node: '24'
+            payload: '3.93.0'
+    services:
+      # Started for every cell (services can't be conditional); only the postgres cells use it.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: payload_passkeys
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+        ports: ['5432:5432']
+    env:
+      DATABASE_ADAPTER: ${{ matrix.adapter }}
+      # The int suite never reads DATABASE_URL (test/helpers/testDatabase.ts): for mongo it starts
+      # mongodb-memory-server (MongoDB 7.0.14, its default; on Ubuntu 24.04 it downloads the
+      # ubuntu2204 build, as MongoDB ships no 24.04 build before 8.0), for sqlite it creates a
+      # throwaway file, and for postgres it uses this URL, which must be on 127.0.0.1 or localhost.
+      PAYLOAD_TEST_DATABASE_URL: ${{ matrix.adapter == 'postgres' && 'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys' || '' }}
+    name: int (payload ${{ matrix.payload }}, ${{ matrix.adapter }}, node ${{ matrix.node }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node }}
+      # Changes package.json and the lockfile in the runner only, so no --frozen-lockfile after
+      # it: the matrix tests what a host would install. pnpm's seven-day minimumReleaseAge still
+      # applies, so a cell for a version published less than a week ago fails to install
+      # (3.93.0 was published 2026-11-04 15:04 UTC and installs from 2026-11-11).
+      - name: Use Payload ${{ matrix.payload }}
+        env:
+          PAYLOAD_VERSION: ${{ matrix.payload }}
+        run: |
+          current="$(node -p "require('./package.json').devDependencies.payload")"
+          if [ "$current" = "$PAYLOAD_VERSION" ]; then
+            echo "The lockfile already has payload $current."
+          else
+            node scripts/use-payload-version.mjs "$PAYLOAD_VERSION"
+          fi
+      - run: pnpm test:int
+
+  migrations:
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: payload_passkeys
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+        ports: ['5432:5432']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # The script ignores DATABASE_URL and refuses any host but 127.0.0.1 or localhost.
+      - run: bash scripts/check-migrations.sh postgres
+        env:
+          CHECK_MIGRATIONS_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys
+      - run: bash scripts/check-migrations.sh sqlite
+
+  e2e:
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm exec playwright install --with-deps chromium
+      # Playwright starts the dev app on SQLite itself (playwright.config.ts).
+      - run: pnpm test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14

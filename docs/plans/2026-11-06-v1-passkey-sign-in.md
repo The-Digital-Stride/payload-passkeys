@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript (ESM, NodeNext), Payload 3.90.2 to 3.93.x, Next.js 16, React 19, `@simplewebauthn/server` 14.0.3 and `@simplewebauthn/browser` 14.0.0 (pinned exactly), Vitest 4 (unit and integration), mongodb-memory-server, `@payloadcms/db-mongodb`, `-db-sqlite`, `-db-postgres`, Playwright with a CDP virtual authenticator, swc and tsc for the build, Changesets, GitHub Actions, npm trusted publishing. pnpm 11, Node 22+.
 
+> **Status (2026-11-06):** Tasks 1 to 43 and 45's instructions are done on branch `v1-passkey-sign-in`; Task 44 is the developer's. Where the code differs from a task below, the code is the truth: see the "Implemented as" notes under the tasks and `docs/design.md` section 13. Throughout, the stored slug field on `passkeys` and `passkey-challenges` is **`authCollection`**, not `collection` (Mongoose reserves `collection`); read every `collection: { equals … }` on those collections and every `row.collection` as `authCollection`.
+
 ---
 
 ## Verified facts
@@ -19,6 +21,7 @@ Everything below was checked on 2026-11-06 against the installed Payload 3.90.2 
 - **`authenticateLocalStrategy` is not exported.** It lives in `PL/auth/strategies/local/authenticate.js` (`authenticateLocalStrategy({ doc, password }): Promise<{ doc, shouldUpdatePasswordHash } | null>`), but `payload`'s `exports` map (`.`, `./internal`, `./node`, `./shared`, `./i18n/*`, `./migrations`) blocks deep imports and no entry re-exports it. The hash format (`pbkdf2-sha256-v1:` prefix, 600 000 iterations, legacy 25 000) is private to `generatePasswordSaltHash.js` and changes in 3.93 (`auth.passwordHashIterations`), so reimplementing it is ruled out.
 - **The safe path is `loginOperation`**, exported from `payload` (`PL/index.d.ts:502`): `loginOperation<TSlug>({ collection: Collection, data: { email?, username?, password }, depth?, overrideAccess?, req: PayloadRequest, showHiddenFields? }): Promise<{ exp?: number; token?: string; user? }>`. It returns `token` even when `removeTokenFromResponses` is set (only the endpoint and `payload.login` strip it). It enforces `checkLoginPermission` (lockout), calls `incrementLoginAttempts` on a wrong password, re-checks the lock inside the transaction, runs `beforeLogin` and `afterLogin`, and creates a new session whose `createdAt` is now (`PL/auth/operations/login.js:165-331`).
 - **Decision (security review H1, accepted):** `POST /passkeys/reauth { password }` runs `loginOperation` with the identifier taken from `req.user` on the server, sets the new session's cookie, revokes the old `sid`, and is rate limited with action `reauth` keyed by user id. The new session is the fresh one. Task 8 (module) and Task 18 (endpoint).
+- **Implemented as:** `reauthenticate` also refuses (`wrong_account`) when the account `loginOperation` signed in isn't the session's (with `loginWithUsername` and email login both on, Payload matches `email = x OR username = x`), and ends that stray session. It builds the response before revoking the old session, and logs a failed revoke instead of throwing.
 
 ### Q2. A `type: 'ui'` field on the account page
 
@@ -147,7 +150,7 @@ Everything below was checked on 2026-11-06 against the installed Payload 3.90.2 
 ### Other facts the plan depends on
 
 - **Collection endpoints come before core auth endpoints** (`PL/collections/config/sanitize.js`), so every plugin path stays under `/passkeys/`. A collection with `endpoints: false` cannot host them. `resolveOptions` throws for that.
-- **`addDataAndFileToRequest`** parses JSON only when `Content-Type` before `;` is exactly `application/json`. It parses `multipart/*` too and lifts a `_payload` field into `req.data` (`PL/utilities/addDataAndFileToRequest.js`). That is why review M4 requires JSON.
+- **`addDataAndFileToRequest`** parses JSON only when `Content-Type` before `;` is exactly `application/json`. It parses `multipart/*` too and lifts a `_payload` field into `req.data` (`PL/utilities/addDataAndFileToRequest.js`). That is why review M4 requires JSON. **Implemented as:** the plugin doesn't call it. `readJsonBody` (`src/server/http.ts`) applies the same `application/json` test, reads the stream itself and stops past 64 KB (Payload's parser reads the whole body, and `Content-Length` is only a hint), then sets `req.data` and `req.json`.
 - **`extractJWT`** accepts the cookie from any `Origin` when `config.csrf` is empty (`PL/auth/extractJWT.js`). Sanitize appends `serverURL` to `csrf` (`PL/config/sanitize.js:341`).
 - **Duplicate keys are reported, not swallowed:**
   - The Mongo adapter maps duplicate-key error 11000 to a `ValidationError` (`db-mongodb/dist/utilities/handleError.js:34`).
@@ -205,7 +208,7 @@ Everything below was checked on 2026-11-06 against the installed Payload 3.90.2 
 |---|---|
 | H1 re-auth is `loginOperation`, rotates session, rate limited `reauth` | 8, 18 |
 | H2 lock ticket (phase 2) | phase 2 plan, M1 there |
-| H3 `collection` text on rows, slug check first, `and[user.relationTo, user.value]`, colliding-ID test | 13, 20, 21, 32 |
+| H3 `collection` text on rows (stored as `authCollection`), slug check first, `and[user.relationTo, user.value]`, colliding-ID test | 13, 20, 21, 32 |
 | H4 `useSessions: false` throws | 11 |
 | M1 response user via `findByID` as `/me`, plus denylist; secrets scan test | 7, 34 |
 | M2 global anonymous cap, one sign-in challenge per browser key, prod warning, x-forwarded-for docs | 15, 20, 25, 38 |
@@ -220,7 +223,7 @@ Everything below was checked on 2026-11-06 against the installed Payload 3.90.2 
 | L2 signed-in endpoints need `_strategy === 'local-jwt'` and `_sid` | 14, 34 |
 | L3 `graphQL: false`, `maxDepth: 0` | 13 |
 | L4 handle made in `register/options`, copied to row `userHandle`, compared with row; refuse `credProps.rk === false` | 18, 19, 20 |
-| L5 `getSafeRedirect` plus admin prefix | 12 |
+| L5 `getSafeRedirect` plus admin prefix, and no `//` or `/\` after dot segments resolve | 12 |
 | L6 dummy verify on unknown credential | 16, 20 |
 | L7 cookie security from configured origin's scheme, per-ceremony name, `Path=/`, no `Domain`, `Max-Age=300` | 14 |
 | L8 document skipped `before/afterOperation`, `onSignIn` hook | 7, 38 |
@@ -229,7 +232,7 @@ Everything below was checked on 2026-11-06 against the installed Payload 3.90.2 
 ### Design points this plan changes or settles (to fold into `docs/design.md`)
 
 1. **§3 fields, `passkeyUserHandle`:** **not** `unique`. It is not queried, and Mongo's sparse unique index collides on explicit nulls. Each passkey row carries its own `userHandle` (L4).
-2. **§3 challenges:** `user` is stored as `userId` (text) plus `collection` (text), not a relationship. The challenge also stores `userHandle`. A third collection, `passkey-challenge-uses` (unique `challenge`), makes consumption atomic (M3).
+2. **§3 challenges:** `user` is stored as `userId` (text) plus `collection` (text; built as `authCollection`), not a relationship. The challenge also stores `userHandle`. A third collection, `passkey-challenge-uses` (unique `challenge`), makes consumption atomic (M3).
 3. **§3 passkeys access:** `delete` is `false` through the REST API as well, so all deletion goes through the guarded `/passkeys/delete` endpoint (M4). The design said "the collection's own DELETE also works". Read stays owner-only.
 4. **§3 endpoints:** add `POST /passkeys/reauth` (H1). `status` takes POST with JSON like the others, skips the `Origin` allowlist (it reports a mismatch), and returns `{ available }` to anonymous callers (M9).
 5. **§3 sign-in step 2 (`checkLoginPermission`):** replaced by the M5 rule. Step 8 (`resetLoginAttempts`) runs before `beforeLogin`, as in core.
@@ -270,6 +273,8 @@ Everything below was checked on 2026-11-06 against the installed Payload 3.90.2 
 End state: the package builds, the dev app boots on MongoDB, SQLite and Postgres, the test harness can call the REST API in-process, and the client-boundary test guards the tree from the first line of component code.
 
 ### Task 1: Package scaffold from the plugin template
+
+> **Implemented as (2026-11-06):** there is no `.npmrc`. pnpm 11 reads only auth settings from `.npmrc`, so `engineStrict: true` and `saveExact: true` (and `shamefullyHoist`) live in `pnpm-workspace.yaml` beside `minimumReleaseAge` and `allowBuilds`. Read Step 2's `.npmrc` and the `git add … .npmrc` in Step 6 accordingly.
 
 **Files:**
 - Create: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `tsconfig.json`, `.swcrc`, `.prettierrc.json`, `eslint.config.js`, `LICENSE`, `src/index.ts`, `src/exports/client.ts`, `src/exports/rsc.ts`
@@ -1527,6 +1532,8 @@ git commit -m "test: add the mintSession contract tests"
 
 ### Task 7: Implement `mintSession`
 
+> **Implemented as (2026-11-06):** as below, with `onSignIn` after the `beforeLogin` hooks and before `jwtSign` and the `afterLogin` hooks. `reauthenticate` (in this module, pinned by Task 8) gained the wrong-account check, builds its response before revoking the old session, and logs a failed revoke instead of throwing (Verified facts Q1).
+
 **Files:**
 - Create: `src/server/mintSession.ts`
 - Test: `test/int/mintSession.contract.int.spec.ts` (from Task 6)
@@ -1863,6 +1870,8 @@ git commit -m "feat: mint native Payload sessions after a verified passkey"
 ```
 
 ### Task 8: Contract tests for `reauthenticate` and `revokeSessions`
+
+> **Implemented as (2026-11-06):** the contract tests here are as planned. The wrong-account refusal described under Task 7 is pinned by a unit test with a stubbed `loginOperation`, `test/unit/reauthIdentity.spec.ts`, because it needs Payload to sign in a different account than asked.
 
 **Files:**
 - Test: `test/int/reauthenticate.contract.int.spec.ts`
@@ -2501,6 +2510,8 @@ git commit -m "feat: resolve plugin options and refuse impossible configs at boo
 
 ### Task 12: Post-sign-in redirect (review L5)
 
+> **Implemented as (2026-11-06):** `safeAdminRedirect` also refuses a resolved path that starts with `//` or `/\`: resolving dot segments can turn `/.//evil.test` into `//evil.test`, which `getSafeRedirect` only checks before resolution.
+
 **Files:**
 - Create: `src/shared/redirect.ts`
 - Test: `test/unit/redirect.spec.ts`
@@ -2595,6 +2606,8 @@ git commit -m "feat: restrict post-sign-in redirects to admin paths"
 ```
 
 ### Task 13: Collections, user fields and plugin wiring (review H3, L3)
+
+> **Implemented as (2026-11-06):** the stored slug field is `authCollection` on both `passkeys` and `passkey-challenges`, and the access and `where` clauses use it. Passkeys and pending challenges are removed from a **`beforeDelete`** hook, not `afterDelete`: on SQL the user row can't be deleted first (`passkeys.user_id` is `NOT NULL`, and polymorphic `_rels` rows cascade away before `afterDelete` runs). Errors propagate. Caveat: Payload checks the document lock after `beforeDelete`, so on an adapter without transactions a delete refused for a lock has already removed the passkeys (fails safe; logged as `passkeys.removed`, `reason: user_deleted`). The helper `ownerField` builds `user`.
 
 **Files:**
 - Create: `src/collections/passkeys.ts`, `src/collections/challenges.ts`, `src/collections/challengeUses.ts`, `src/collections/userFields.ts`, `src/server/context.ts`, `src/server/endpoints/index.ts`, `test/helpers/passkeys.ts`
@@ -2995,6 +3008,8 @@ git commit -m "feat: add the passkeys and challenge collections and the user han
 ```
 
 ### Task 14: Request guards, cookies, IPs, logging and the rate-limit hook (review M4, L1, L2, L7)
+
+> **Implemented as (2026-11-06):** `readJsonBody` doesn't call `addDataAndFileToRequest`. It keeps the exact `application/json` check, reads the body with its own bounded reader (64 KB, `MAX_BODY_BYTES`, enforced while streaming, not only from `Content-Length`), and sets `req.data` and `req.json` so hooks that call `req.json()` still work.
 
 **Files:**
 - Create: `src/server/http.ts`, `src/server/cookies.ts`, `src/server/ip.ts`, `src/server/logging.ts`, `src/server/rateLimit.ts`
@@ -4929,6 +4944,8 @@ git commit -m "feat: add register/options with the fresh-session rule and passwo
 
 ### Task 19: `register/verify` (review L4, M3)
 
+> **Implemented as (2026-11-06):** when the passkey insert itself fails (the unique index on `credentialId` lost a race with a parallel registration of the same credential), the endpoint refuses and logs `passkeys.registration_failed` with reason `duplicate_credential_race`. Rows are written with `authCollection`.
+
 **Files:**
 - Create: `src/server/endpoints/registerVerify.ts`, `src/shared/aaguid.ts` (stub until Task 23)
 - Modify: `src/server/endpoints/index.ts`
@@ -5155,6 +5172,8 @@ git commit -m "feat: verify and store new passkeys"
 ```
 
 ### Task 20: `sign-in/options` and `sign-in/verify` (review H3, L4, L6, M2, M5, M7)
+
+> **Implemented as (2026-11-06):** the collection check reads `row.authCollection`. An unknown credential returns the generic 400 plus `unknownCredential: true` so the client can call `signalUnknownCredential`: the one documented exception to identical failures (design §4.2, §6).
 
 **Files:**
 - Create: `src/server/endpoints/signInOptions.ts`, `src/server/endpoints/signInVerify.ts`
@@ -5470,6 +5489,8 @@ git commit -m "feat: sign in with a discoverable passkey and mint a native sessi
 ```
 
 ### Task 21: `status`, `rename` and `delete` (review H3, M6, M9)
+
+> **Implemented as (2026-11-06):** the ownership `where` (`ownPasskeysWhere`) matches `authCollection`, not `collection`.
 
 **Files:**
 - Create: `src/server/endpoints/status.ts`, `src/server/endpoints/rename.ts`, `src/server/endpoints/delete.ts`
@@ -5984,6 +6005,8 @@ git commit -m "feat: name passkeys from a pinned AAGUID snapshot"
 ```
 
 ### Task 24: Recovery CLI `payload passkeys:reset` (review M6)
+
+> **Implemented as (2026-11-06):** the challenge clean-up matches `authCollection`. The command accepts `--email` or `--id`, removes passkeys and pending registration challenges, ends every session, exits 1 on failure and 2 on a usage error, and is registered even with `enabled: false`.
 
 **Files:**
 - Create: `src/server/reset.ts`, `src/bin/reset.ts`
@@ -7260,6 +7283,8 @@ git commit -m "test: cover every registration and sign-in rejection path"
 
 ### Task 32: Multi-collection isolation with colliding IDs (review H3)
 
+> **Implemented as (2026-11-06):** the test helpers' `collection` parameter is a slug and keeps its name; the field they write and query on the rows is `authCollection`.
+
 **Files:**
 - Test: `test/int/multiCollection.int.spec.ts`
 
@@ -7734,6 +7759,8 @@ End state: a stranger can install the plugin from the README alone. CI runs the 
 
 ### Task 38: README
 
+> **Implemented as (2026-11-06):** Changesets was set up separately (`chore: set up Changesets`), so this task wrote only the README. The samples live in `dev/readme-samples.ts` with stubs in `dev/readme-samples.d.ts` (referenced with a triple-slash directive, because tsc skips a `.d.ts` that shares its name with an included `.ts`), and `test/unit/readmeSamples.spec.ts` fails if a README code block differs from them. Item 8 is corrected in the README: `onSignIn` runs after `beforeLogin` and before `afterLogin`, and a passkey sign-in clears the lockout, not only the attempt count.
+
 **Files:**
 - Create: `README.md`, `.changeset/config.json`, `.changeset/README.md`
 
@@ -8157,6 +8184,8 @@ git commit -m "ci: add CodeQL and grouped Dependabot updates with a cooldown"
 
 ### Task 43: Release through Changesets and npm trusted publishing
 
+> **Implemented as (2026-11-06):** `npm publish` run in the repository ignores `publishConfig.exports` (only pnpm applies it) and would ship a manifest pointing at `src/`. So `scripts/publish.mjs` publishes the tarball `pnpm pack` makes, after `scripts/check-package.mjs` has checked that tarball, with `--provenance`. `changesets/action` then pushes lightweight tags through the GitHub API, so design §10's signed tags are not met (an open decision in `docs/release-setup.md`).
+
 **Files:**
 - Create: `.github/workflows/release.yml`, `scripts/publish.mjs`
 - Modify: `package.json` (`release` script)
@@ -8247,6 +8276,8 @@ git commit -m "ci: release with Changesets and npm trusted publishing"
 
 ### Task 44: Repository and registry settings (the developer does these; the plan lists them)
 
+> **Implemented as (2026-11-06):** the checklist is `docs/release-setup.md`, with additions found while building CI: the 3.93.0 cells can't install before 2026-11-11, the open question whether npm allows a trusted publisher before the package exists, the signed-tags decision, the release environment's approval on every push to `main`, and checks for the first CI and Dependabot runs.
+
 These are dashboard steps for Ian. Write them as a checklist in `docs/release-setup.md`, then commit it with `git add docs/release-setup.md && git commit -m "docs: list the repository and npm settings the release depends on"`.
 
 - [ ] Claim the npm organisation `the-digital-stride` (fallback `thedigitalstride`, design §12). Protect the npm account with a passkey, and set the package to "Require two-factor authentication and disallow tokens".
@@ -8263,6 +8294,8 @@ These are dashboard steps for Ian. Write them as a checklist in `docs/release-se
 ## Milestone M6: first adopter (ianhancock.co.uk)
 
 ### Task 45: Instructions for adopting the plugin on ianhancock.co.uk (for a later session)
+
+> **Implemented as (2026-11-06):** the instructions, corrected to the built package, are in `docs/adoption-ianhancock.md`.
 
 This task is a set of instructions for a future session working in `/Users/ianhancock/My Repos/ianhancock`. **Nothing in that repo is changed by this plan.** Follow that repo's `CLAUDE.md`:
 - create a branch first (`passkeys-sign-in`, from an up-to-date `main`);

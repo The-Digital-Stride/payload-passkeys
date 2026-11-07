@@ -1,0 +1,8 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: payload_passkeys
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'

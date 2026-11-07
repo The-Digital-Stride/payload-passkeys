@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Mirrors pnpm's minimumReleaseAge (pnpm-workspace.yaml).
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      payload:
+        patterns: ['payload', '@payloadcms/*']
+      simplewebauthn:
+        # Read both changelogs before merging: these are exact pins on purpose (review L9).
+        patterns: ['@simplewebauthn/*']
+      dev-tooling:
+        dependency-type: development
+        exclude-patterns: ['payload', '@payloadcms/*', '@simplewebauthn/*']
+  # Keeps the SHA pins and updates the version comment beside each. `/` covers only
+  # .github/workflows, so the composite action is listed too.
+  - package-ecosystem: github-actions
+    directories: ['/', '/.github/actions/*']
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']

@@ -1,0 +1,17 @@
+# Based on payload-starter's .prettierignore.
+**/payload-types.ts
+**/*.generated.ts
+**/.next
+**/dist/**
+**/node_modules
+**/docs/**
+CLAUDE.md
+test/.tmp
+test-results
+playwright-report
+
+# Generated or machine-owned files
+pnpm-lock.yaml
+**/importMap.js
+dev/app/(payload)/**
+dev/migrations/**

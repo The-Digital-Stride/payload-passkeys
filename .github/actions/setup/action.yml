@@ -1,0 +1,33 @@
+name: Set up
+description: pnpm, Node and a frozen install
+inputs:
+  cache:
+    default: pnpm
+    description: setup-node's cache input. The release workflow passes '' to restore no cache.
+  ignore-scripts:
+    default: 'false'
+    description: "'true' installs with --ignore-scripts (no dependency's install scripts run)"
+  node-version:
+    default: '22'
+    description: Node version
+runs:
+  using: composite
+  steps:
+    # No `version` input: the action reads `packageManager` (pnpm@11.28.10) from package.json.
+    # v6.1.0, not v6.1.1: v6.1.1 was three days old on 2026-11-06, inside the seven-day cooldown
+    # this repo keeps for dependencies and actions alike (review L9). Dependabot moves it on.
+    # Its own store cache is off by default (`cache: 'false'`).
+    - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        cache: ${{ inputs.cache }}
+        node-version: ${{ inputs.node-version }}
+    - env:
+        IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+      run: |
+        if [ "$IGNORE_SCRIPTS" = true ]; then
+          pnpm install --frozen-lockfile --ignore-scripts
+        else
+          pnpm install --frozen-lockfile
+        fi
+      shell: bash

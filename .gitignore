@@ -1,8 +1,9 @@
 node_modules/
 dist/
 .next/
-.env
-.env.local
+# Every env file, in any folder, except the committed examples.
+.env*
+!.env.example
 *.log
 .DS_Store
 coverage/
@@ -10,3 +11,8 @@ test-results/
 playwright-report/
 *.db
 *.sqlite
+dev/media/
+dev/*.db
+test/.tmp/
+*.tsbuildinfo
+next-env.d.ts

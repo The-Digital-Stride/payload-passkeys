@@ -32,6 +32,8 @@ No critical findings: nothing in the design lets an anonymous attacker sign in. 
 
 **Change.** Store `collection` as a plain text field on the passkey row as well as the relationship, and require `passkey.collection === endpointCollection.slug` (and `passkey.user.relationTo === slug`) before anything else. Access functions use `and: [{ 'user.relationTo': { equals: user.collection } }, { 'user.value': { equals: user.id } }]`. Add a multi-collection integration test on Postgres with deliberately colliding IDs.
 
+> **Note (2026-11-06, implementation):** the field was built as `authCollection`, not `collection`, because Mongoose reserves `collection`. The check reads `passkey.authCollection === endpointCollection.slug`, and the access clause is `and: [{ authCollection: { equals: user.collection } }, …]`. The finding stands as written; see `docs/design.md` section 13.
+
 ### H4. `useSessions: false` silently voids the fresh-session rule, the lock and all revocation. CONFIRMED
 
 **Attack.** A host sets `useSessions: false` (a documented, supported option). `addSessionToUser` returns `sid: undefined`; the JWT has no `sid`; there is no `sessions` row and no `req.user._sid`. The fresh check in §4.1 ("the current session's `createdAt` … for `req.user._sid`") has nothing to read, so it either always refuses (dead feature) or, if coded as "no row, no restriction", always passes, and a stolen cookie can plant a passkey at any time. Phase 2's "lock is server-enforced by revoking the session" cannot revoke anything, so the lock becomes the overlay-only theatre the design itself rejects.
