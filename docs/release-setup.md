@@ -35,7 +35,7 @@ Plan reference: Task 44 of `docs/plans/2026-11-06-v1-passkey-sign-in.md`; design
 - [ ] **Decide on signed tags.** Design §10 asks for signed tags, but the workflow doesn't produce them: `gh release create` makes a **lightweight** tag through the GitHub API, which can't be signed. The choices are (a) accept unsigned tags, relying on npm provenance (which names the exact commit) and the protected environment, and amend design §10; (b) sign tags in the workflow with a key held as a secret, and push them with git instead of the API; or (c) create and sign each release tag by hand after the workflow publishes. Record the decision in `docs/design.md`.
 - [ ] **Settings → Code security:** private vulnerability reporting (SECURITY.md sends reporters there), Dependabot alerts and security updates, secret scanning and push protection.
 - [ ] **Settings → Actions → General:** "Require actions to be pinned to a full-length commit SHA" (or an allowlist), and workflow permissions "Read repository contents".
-- [ ] Replace `<maintainer-handle>` in `.github/CODEOWNERS` with the real GitHub user or team.
+- [x] Replace `<maintainer-handle>` in `.github/CODEOWNERS` with the real GitHub user or team (done: `@thedigitalstride`).
 - [ ] Create the issue label **`nightly`**. The nightly workflow's report job runs `gh issue create --label nightly`, which fails if the label doesn't exist.
 - [ ] Protect the GitHub account of every maintainer with a passkey.
 
