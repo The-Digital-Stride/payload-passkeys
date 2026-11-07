@@ -1,7 +1,7 @@
 import type { ResolvedOptions } from '../options.js'
 
 import { ENDPOINTS, USER_HANDLE_FIELD } from '../../shared/constants.js'
-import { ceremoniesDisabledReason } from '../health.js'
+import { refreshCeremoniesDisabled } from '../health.js'
 import { json, passkeyEndpoint } from '../http.js'
 import { loadRawUser } from '../mintSession.js'
 import { listPasskeysOfUser, toPublicPasskey } from '../passkeyRecords.js'
@@ -10,7 +10,8 @@ import { listPasskeysOfUser, toPublicPasskey } from '../passkeyRecords.js'
  * Whether passkeys work at the caller's origin. Anonymous callers learn only that (M9). The
  * signed-in owner also gets the reason, the RP ID, their passkeys (the manager's one read) and
  * `signalUserId`, the WebAuthn user.id that PublicKeyCredential.signalAllAcceptedCredentials needs.
- * While boot has turned the ceremonies off, `available` is false and the owner's reason `indexes`.
+ * While the boot check fails, `available` is false and the owner's reason `indexes`; asking runs
+ * the check again when one is due (health.ts).
  */
 export const statusEndpoint = (options: ResolvedOptions, collectionSlug: string) =>
   passkeyEndpoint({
@@ -20,7 +21,7 @@ export const statusEndpoint = (options: ResolvedOptions, collectionSlug: string)
     collectionSlug,
     handler: async ({ req, user }) => {
       const origin = req.headers.get('Origin')
-      const disabled = ceremoniesDisabledReason(req.payload)
+      const disabled = await refreshCeremoniesDisabled(req.payload)
       const available = !disabled && origin !== null && options.origins.includes(origin)
       if (!user) return json(req, 200, { available })
       const reason = disabled ?? (origin === null ? 'no_origin' : 'origin_not_allowed')

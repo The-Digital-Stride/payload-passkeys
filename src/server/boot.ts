@@ -2,7 +2,7 @@ import type { Payload } from 'payload'
 
 import type { ResolvedOptions } from './options.js'
 
-import { setCeremoniesDisabled } from './health.js'
+import { RECHECK_INTERVAL_MS, setCeremoniesDisabled } from './health.js'
 
 type IndexInfo = { key: Record<string, unknown>; name?: string; unique?: boolean }
 /** The part of a Mongoose model this needs; db-mongodb keeps one per slug on payload.db.collections. */
@@ -63,10 +63,21 @@ export const bootPasskeys = async (payload: Payload, options: ResolvedOptions): 
   }
   // Fail closed for the ceremonies only: password sign-in and the rest of the admin keep working.
   const healthy = await ensureMongoIndexes(payload, options)
-  setCeremoniesDisabled(payload, healthy ? null : 'indexes')
+  // The cause may pass (a dropped connection during a burst of cold starts), so a later ceremony
+  // or status request runs the check again (health.ts).
+  const recheck = async () => {
+    const ok = await ensureMongoIndexes(payload, options)
+    if (ok) {
+      payload.logger.info({
+        msg: 'passkeys: the unique indexes exist now; passkey sign-in and registration are on.',
+      })
+    }
+    return ok
+  }
+  setCeremoniesDisabled(payload, healthy ? null : 'indexes', recheck)
   if (!healthy) {
     payload.logger.error({
-      msg: 'passkeys: passkey sign-in and registration are off until the unique indexes exist. Password sign-in still works. Fix the cause above and restart.',
+      msg: `passkeys: passkey sign-in and registration are off until the unique indexes exist. Password sign-in still works. The plugin checks again on a passkey request, at most every ${RECHECK_INTERVAL_MS / 1000} seconds; if this persists, fix the cause above.`,
     })
   }
 }
