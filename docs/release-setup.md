@@ -14,6 +14,8 @@ Plan reference: Task 44 of `docs/plans/2026-11-06-v1-passkey-sign-in.md`; design
 
 `test/unit/releaseWorkflow.spec.ts` fails if a change gives the OIDC token to another job or lets the publish job install anything.
 
+**Accepted (2026-11-07):** the `version` job runs dependency code with a write token. `--ignore-scripts` stops install scripts, but `pnpm changeset version` then runs `@changesets/cli` and the changelog generator from `node_modules`, while `changesets/action` holds the job's `github.token` with `contents: write` and `pull-requests: write`. A compromised dependency there could push to a branch or edit the version PR. It can't publish (no `id-token` in that job, and `publish` needs the `release` environment's reviewer), and it can't reach `main` past branch protection. The packages are pinned in the lockfile and held back seven days by `minimumReleaseAge`.
+
 ## npm
 
 - [ ] Claim the npm organisation `the-digital-stride`. If it is taken, fall back to `thedigitalstride` (design §12) and rename the package everywhere, starting with `package.json` and `src/shared/constants.ts`.
