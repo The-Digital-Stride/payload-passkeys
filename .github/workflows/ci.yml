@@ -74,10 +74,11 @@ jobs:
         ports: ['5432:5432']
     env:
       DATABASE_ADAPTER: ${{ matrix.adapter }}
-      # Empty for mongo and sqlite: test/globalSetup.ts then starts mongodb-memory-server (MongoDB
-      # 7.0.14, its default; on Ubuntu 24.04 it downloads the ubuntu2204 build, as MongoDB ships no
-      # 24.04 build before 8.0) or creates a throwaway SQLite file.
-      DATABASE_URL: ${{ matrix.adapter == 'postgres' && 'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys' || '' }}
+      # The int suite never reads DATABASE_URL (test/helpers/testDatabase.ts): for mongo it starts
+      # mongodb-memory-server (MongoDB 7.0.14, its default; on Ubuntu 24.04 it downloads the
+      # ubuntu2204 build, as MongoDB ships no 24.04 build before 8.0), for sqlite it creates a
+      # throwaway file, and for postgres it uses this URL, which must be on 127.0.0.1 or localhost.
+      PAYLOAD_TEST_DATABASE_URL: ${{ matrix.adapter == 'postgres' && 'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys' || '' }}
     name: int (payload ${{ matrix.payload }}, ${{ matrix.adapter }}, node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

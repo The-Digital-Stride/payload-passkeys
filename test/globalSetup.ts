@@ -2,10 +2,21 @@ import { mkdirSync, rmSync } from 'fs'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import path from 'path'
 
-export default async function setup(): Promise<() => Promise<void>> {
-  const adapter = process.env.DATABASE_ADAPTER ?? 'mongo'
+import { resolveTestDatabase } from './helpers/testDatabase.js'
 
-  if (adapter === 'mongo' && !process.env.DATABASE_URL) {
+// The int project drops the database it runs against (PAYLOAD_DROP_DATABASE), so this always
+// overwrites DATABASE_URL, whatever dev/.env or the shell set it to (test/helpers/testDatabase.ts).
+export default async function setup(): Promise<() => Promise<void>> {
+  let database: ReturnType<typeof resolveTestDatabase>
+  try {
+    database = resolveTestDatabase(process.env)
+  } catch (error) {
+    // Vitest 5 fails to print a globalSetup error (its stack mapper throws), so say it here.
+    console.error(`\n${error instanceof Error ? error.message : String(error)}\n`)
+    throw error
+  }
+
+  if (database.adapter === 'mongo') {
     const replSet = await MongoMemoryReplSet.create({
       replSet: { count: 1, storageEngine: 'wiredTiger' },
     })
@@ -15,7 +26,7 @@ export default async function setup(): Promise<() => Promise<void>> {
     }
   }
 
-  if (adapter === 'sqlite' && !process.env.DATABASE_URL) {
+  if (database.adapter === 'sqlite') {
     const dir = path.resolve('test/.tmp')
     mkdirSync(dir, { recursive: true })
     const file = path.join(dir, `int-${process.pid}.db`)
@@ -25,8 +36,6 @@ export default async function setup(): Promise<() => Promise<void>> {
     }
   }
 
-  if (adapter === 'postgres' && !process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = 'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys'
-  }
+  process.env.DATABASE_URL = database.url
   return async () => {}
 }
