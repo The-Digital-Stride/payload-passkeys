@@ -72,7 +72,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           cache: ''
-      - run: npm audit signatures
+      - run: bash scripts/audit-signatures.sh
       - run: pnpm test:unit
       - run: pnpm build
       - id: pack
