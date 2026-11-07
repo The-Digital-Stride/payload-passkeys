@@ -10,7 +10,7 @@ import config from '../configs/single.js'
 import { SERVER_URL } from '../helpers/api.js'
 import { passwordClient, registerPasskey } from '../helpers/ceremonies.js'
 import { createSoftAuthenticator } from '../helpers/softAuthenticator.js'
-import { createUser, rawUser } from '../helpers/users.js'
+import { createUser, interceptSessionWrites, rawUser } from '../helpers/users.js'
 
 let payload: Payload
 beforeAll(async () => {
@@ -103,14 +103,13 @@ describe('"Also sign out everywhere" under parallel refreshes (finding 1)', () =
   it('retries a write conflict and logs the retry', async () => {
     const { attacker, ownerClient, passkeyId } = await setUp()
     const warn = vi.spyOn(payload.logger, 'warn')
-    const updateOne = payload.db.updateOne.bind(payload.db)
     let failed = false
-    const spy = vi.spyOn(payload.db, 'updateOne').mockImplementation(async (args) => {
-      if (!failed && Array.isArray((args.data as { sessions?: unknown }).sessions)) {
+    const spy = interceptSessionWrites(payload, 'users', async ({ write }) => {
+      if (!failed) {
         failed = true
         throw Object.assign(new Error('deadlock detected'), { code: '40P01' })
       }
-      return updateOne(args)
+      return write()
     })
     try {
       const res = await ownerClient.post(DELETE, { id: passkeyId, signOutOtherSessions: true })
@@ -129,12 +128,8 @@ describe('"Also sign out everywhere" under parallel refreshes (finding 1)', () =
 
   it('answers 503 retry and keeps the passkey when the write keeps failing', async () => {
     const { attacker, ownerClient, passkeyId } = await setUp()
-    const updateOne = payload.db.updateOne.bind(payload.db)
-    const spy = vi.spyOn(payload.db, 'updateOne').mockImplementation(async (args) => {
-      if (Array.isArray((args.data as { sessions?: unknown }).sessions)) {
-        throw Object.assign(new Error('deadlock detected'), { code: '40P01' })
-      }
-      return updateOne(args)
+    const spy = interceptSessionWrites(payload, 'users', async () => {
+      throw Object.assign(new Error('deadlock detected'), { code: '40P01' })
     })
     let res
     try {
@@ -160,12 +155,9 @@ describe('"Also sign out everywhere" under parallel refreshes (finding 1)', () =
     const { attacker, owner, ownerClient, passkeyId } = await setUp()
     const sessionsBefore = (await rawUser(payload, 'users', owner.id)).sessions ?? []
     // Whatever the confirm loop removes comes straight back: a session it can never confirm gone.
-    const updateOne = payload.db.updateOne.bind(payload.db)
-    const spy = vi.spyOn(payload.db, 'updateOne').mockImplementation(async (args) => {
-      const result = await updateOne(args)
-      if (Array.isArray((args.data as { sessions?: unknown }).sessions)) {
-        await updateOne({ ...args, data: { sessions: sessionsBefore } })
-      }
+    const spy = interceptSessionWrites(payload, 'users', async ({ write, writeSessions }) => {
+      const result = await write()
+      await writeSessions(sessionsBefore)
       return result
     })
     let res

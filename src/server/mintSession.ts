@@ -146,21 +146,55 @@ export const toResponseUser = async ({
 }
 
 /**
+ * The parts of @payloadcms/db-mongodb's adapter the MongoDB branch of revokeSessions uses
+ * (3.90.2: `collections` holds the Mongoose model per slug, init.js:55; `sessions` the
+ * ClientSession per transaction ID, read by utilities/getSession.js). Undocumented: the contract
+ * tests pin them.
+ */
+type MongooseInternals = {
+  collections: Record<
+    string,
+    {
+      findOneAndUpdate: (
+        filter: Record<string, unknown>,
+        update: Record<string, unknown>,
+        options: Record<string, unknown>,
+      ) => PromiseLike<null | { sessions?: Session[] }>
+    }
+  >
+  sessions: Record<number | string, { inTransaction: () => boolean } | undefined>
+}
+
+/** The ClientSession of req's transaction, found as the adapter's getSession finds it. */
+const mongoSession = async (db: MongooseInternals, req: PayloadRequest) => {
+  const transactionID = await req.transactionID
+  if (!transactionID) return undefined
+  const session = db.sessions[transactionID]
+  return session?.inTransaction() ? session : undefined
+}
+
+/**
  * Removes sessions from a user. `only`: remove these sids. Otherwise keep only `keep` (or none).
  * Returns how many were removed. updatedAt is left alone (`updatedAt: null`, which every adapter
  * takes as "don't touch it"), as in core's logout.
  *
- * - MongoDB: $sets only the filtered `sessions` (Mongoose wraps a plain update in $set), so a write
- *   landing between this read and this write is kept.
+ * - MongoDB: one atomic update on the server, `$pull` of the sessions to remove (or `$set` of none
+ *   when nothing is kept), so it never writes back a list it read: a write landing between the read
+ *   and the update is kept, sessions it ended included. The adapter has no array-removal operator
+ *   (transform.js turns `$remove` into `$pull` only for hasMany relationships), so this goes
+ *   through the adapter's Mongoose model, in req's transaction, with `timestamps: false` as the
+ *   adapter's updateOne does. The count comes from the document as it was just before the update.
  * - Postgres and SQLite: Drizzle's upsertRow rewrites every array and blocks table a write touches,
  *   so a partial write can delete a host's data. This writes the whole stored user back, the shape
  *   core's logout writes. To keep a write that lands between the read and the write, it first
  *   UPDATEs the user's handle (set once, never changed) to its stored value, a plain
  *   `UPDATE … SET` that takes the row lock, and only then reads the user. In a transaction
  *   (runSessionWrite) the lock holds until commit, so no other write to the user can commit in
- *   between; without one (SQLite's default, or reauthenticate's revoke below, after Payload's login
- *   has committed) it doesn't, and the race is core's logout's (design section 12). Locking first is also the order every refresh takes, so the two can't deadlock.
- *   A user without a handle (never enrolled a passkey) skips the lock, as core's logout does.
+ *   between, and one that committed before the lock is in what the re-read returns. Without one
+ *   (SQLite's default, or reauthenticate's revoke below, after Payload's login has committed) the
+ *   lock ends with its statement, and the race is core's logout's (design section 12). Locking
+ *   first is also the order every refresh takes, so the two can't deadlock. A user without a
+ *   handle (never enrolled a passkey) skips the lock, as core's logout does.
  */
 export const revokeSessions = async ({
   collectionSlug,
@@ -196,8 +230,21 @@ export const revokeSessions = async ({
   if (!user || !sessions) return 0
 
   if (req.payload.db.name === 'mongoose') {
-    await write({ sessions })
-    return user.sessions!.length - sessions.length
+    const db = req.payload.db as unknown as MongooseInternals
+    const removes = (session: Session) => (only ? only.includes(session.id) : session.id !== keep)
+    const update = only
+      ? { $pull: { sessions: { id: { $in: only } } } }
+      : keep !== undefined
+        ? { $pull: { sessions: { id: { $ne: keep } } } }
+        : { $set: { sessions: [] } }
+    const before = await db.collections[collectionSlug]!.findOneAndUpdate({ _id: userId }, update, {
+      lean: true,
+      new: false,
+      projection: { sessions: 1 },
+      session: await mongoSession(db, req),
+      timestamps: false,
+    })
+    return (before?.sessions ?? []).filter(removes).length
   }
 
   const handle = user[USER_HANDLE_FIELD]

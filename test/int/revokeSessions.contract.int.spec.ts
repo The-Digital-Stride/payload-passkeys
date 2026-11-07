@@ -1,10 +1,11 @@
 /**
  * revokeSessions reads the stored user, filters its sessions and writes them back (design section
  * 13, item 19). It must never lose or undo a host's data:
- * - MongoDB: it $sets only the sessions, so a write landing between its read and its write stays.
- * - Postgres and SQLite: it locks the user's row first, then reads and writes the whole user, the
- *   shape core's logout writes. In a transaction (Postgres) a racing write waits for the revoke to
- *   commit; without one (SQLite's default) the race is core's logout's (section 12).
+ * - MongoDB: it removes the sessions with one atomic $pull, so a write landing between its read
+ *   and its write stays, and a session that write ended is never written back.
+ * - Postgres and SQLite: it locks the user's row first, then re-reads and writes the whole user,
+ *   the shape core's logout writes. In a transaction (Postgres) a racing write waits for the revoke
+ *   to commit; without one (SQLite's default) the race is core's logout's (section 12).
  * The users collection has every field shape that lives outside the main row on Drizzle (arrays,
  * blocks, hasMany selects, localized fields, in groups and tabs), and a second suite stores blocks
  * as JSON on the main row (`blocksAsJSON`).
@@ -19,7 +20,7 @@ import { userHandleField } from '../../src/collections/userFields.js'
 import { revokeSessions } from '../../src/server/mintSession.js'
 import { runSessionWrite } from '../../src/server/sessions.js'
 import { USER_HANDLE_FIELD } from '../../src/shared/constants.js'
-import { SERVER_URL } from '../helpers/api.js'
+import { createClient, SERVER_URL } from '../helpers/api.js'
 import { PASSWORD, rawUser } from '../helpers/users.js'
 
 const NEW_PASSWORD = 'a brand new password for this test'
@@ -137,22 +138,60 @@ const signedInUser = async (payload: Payload, { handle = true, sessions = 2 } = 
     id: doc.id,
     locale: 'fr',
   })
+  const tokens = new Map<string, string>()
   for (let i = 0; i < sessions; i++) {
-    await payload.login({ collection: 'users', data: { email, password: PASSWORD } })
+    const { token } = await payload.login({
+      collection: 'users',
+      data: { email, password: PASSWORD },
+    })
+    tokens.set(sidOf(token!), token!)
   }
   const stored = await rawUser(payload, 'users', doc.id)
   if (handle) expect(stored[USER_HANDLE_FIELD]).toBe(`handle-${count}`)
   const sids = stored.sessions!.map((s) => s.id)
   expect(sids).toHaveLength(sessions)
-  return { email, id: doc.id, sids }
+  expect([...tokens.keys()].sort()).toEqual([...sids].sort())
+  return { email, id: doc.id, sids, tokens }
 }
 
-/** Revokes as the plugin does: through runSessionWrite, in a transaction where there is one. */
-const revoke = (req: PayloadRequest, userId: number | string, only: string[]) =>
+const sidOf = (token: string): string =>
+  (JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as { sid: string })
+    .sid
+
+/** The user /api/users/me returns for this token (over Payload's REST stack), or null. */
+const meWith = async (config: TestConfig, token: string | undefined) =>
+  ((await createClient(config).get('/api/users/me', { headers: { Authorization: `JWT ${token}` } }))
+    .json?.user ?? null) as null | { id: number | string }
+
+/**
+ * A password change from a separate request, as the user signed in as `sid`: Payload ends every
+ * other session (update.js keeps only the caller's).
+ */
+const changePasswordAs = async (payload: Payload, id: number | string, sid: string) => {
+  const self = await payload.findByID({ collection: 'users', depth: 0, id })
+  return payload.update({
+    collection: 'users',
+    data: { name: 'Changed meanwhile', password: NEW_PASSWORD } as never,
+    id,
+    user: { ...self, _sid: sid, collection: 'users' } as never,
+  })
+}
+
+/**
+ * Revokes as the plugin does: through runSessionWrite, in a transaction where there is one.
+ * An array revokes those sids (`only`); a string keeps that sid alone (`keep`).
+ */
+const revoke = (req: PayloadRequest, userId: number | string, which: string | string[]) =>
   runSessionWrite({
     label: 'test revoke',
     req,
-    work: () => revokeSessions({ collectionSlug: 'users', only, req, userId }),
+    work: () =>
+      revokeSessions({
+        collectionSlug: 'users',
+        ...(typeof which === 'string' ? { keep: which } : { only: which }),
+        req,
+        userId,
+      }),
   })
 
 const canLogIn = (payload: Payload, email: string, password: string) =>
@@ -186,44 +225,59 @@ describe('revokeSessions on relational blocks', () => {
 
   it('never undoes a password change that lands between its read and its write, but on Drizzle without transactions', async () => {
     const adapter = adapterName()
-    const { email, id, sids } = await signedInUser(payload)
+    const { email, id, sids, tokens } = await signedInUser(payload)
     const req = await requestTo(relational)
 
-    // The racing update runs in its own request (and transaction), injected just before the
-    // revoke's session write: after its read, and on Drizzle after it has locked the user's row.
+    // The racing update runs in its own request (and transaction). It ends every session.
     let racing: Promise<unknown> | undefined
     let raceDoneAt = 0
     let written: unknown
-    const updateOne = payload.db.updateOne.bind(payload.db)
-    vi.spyOn(payload.db, 'updateOne').mockImplementation(async (args) => {
-      if (args.req === req && args.data && 'sessions' in args.data && !racing) {
-        written = args.data.sessions
-        racing = payload
-          .update({
-            collection: 'users',
-            data: { name: 'Changed meanwhile', password: NEW_PASSWORD },
-            id,
-          })
-          .then(() => {
-            raceDoneAt = Date.now()
-          })
-        if (adapter === 'postgres') {
-          // It has to wait for the revoke's row lock: it can't commit before the revoke does.
-          await sleep(500)
-          expect(raceDoneAt).toBe(0)
-        } else {
-          await racing
+    const race = () =>
+      (racing = payload
+        .update({
+          collection: 'users',
+          data: { name: 'Changed meanwhile', password: NEW_PASSWORD },
+          id,
+        })
+        .then(() => {
+          raceDoneAt = Date.now()
+        }))
+    if (adapter === 'mongo') {
+      // MongoDB takes no lock: the update commits between the revoke's read and its write.
+      const findOne = payload.db.findOne.bind(payload.db)
+      vi.spyOn(payload.db, 'findOne').mockImplementation(async (args) => {
+        const found = await findOne(args)
+        if (args.req === req && !racing) await race()
+        return found
+      })
+    } else {
+      // On Drizzle it is injected just before the session write, after the row lock.
+      const updateOne = payload.db.updateOne.bind(payload.db)
+      vi.spyOn(payload.db, 'updateOne').mockImplementation(async (args) => {
+        if (args.req === req && args.data && 'sessions' in args.data && !racing) {
+          written = args.data.sessions
+          void race()
+          if (adapter === 'postgres') {
+            // It has to wait for the revoke's row lock: it can't commit before the revoke does.
+            await sleep(500)
+            expect(raceDoneAt).toBe(0)
+          } else {
+            await racing
+          }
         }
-      }
-      return updateOne(args)
-    })
+        return updateOne(args)
+      })
+    }
 
-    expect(await revoke(req, id, [sids[0]!])).toBe(1)
+    // On MongoDB the password change had already ended the session, so there was none to remove.
+    expect(await revoke(req, id, [sids[0]!])).toBe(adapter === 'mongo' ? 0 : 1)
     const committedAt = Date.now()
     expect(racing).toBeDefined()
     await racing
     vi.restoreAllMocks()
-    expect((written as { id: string }[]).map((s) => s.id)).toEqual([sids[1]])
+    if (adapter !== 'mongo') {
+      expect((written as { id: string }[]).map((s) => s.id)).toEqual([sids[1]])
+    }
 
     const stored = await rawUser(payload, 'users', id)
     if (adapter === 'sqlite') {
@@ -243,9 +297,74 @@ describe('revokeSessions on relational blocks', () => {
       // revived session is the markers' job (design section 13, item 18).
       expect(raceDoneAt).toBeGreaterThanOrEqual(committedAt)
     } else {
-      expect(stored.sessions?.map((s) => s.id)).not.toContain(sids[0])
+      // The $pull removed only what it matched: the session the password change ended stays gone.
+      expect(stored.sessions ?? []).toEqual([])
+      expect(await meWith(relational, tokens.get(sids[1]!))).toBeNull()
     }
   })
+
+  it('never writes back a session a racing password change ended (only, keep)', async () => {
+    for (const mode of ['only', 'keep'] as const) {
+      const { id, sids, tokens } = await signedInUser(payload, { sessions: 3 })
+      const [s0, s1, s2] = sids as [string, string, string]
+      const req = await requestTo(relational)
+
+      // Between the revoke's (first) read and its write, a password change signed in as s2 ends
+      // s0 and s1. On Drizzle this lands before the row lock, and the re-read after it sees it.
+      let raced = false
+      const findOne = payload.db.findOne.bind(payload.db)
+      vi.spyOn(payload.db, 'findOne').mockImplementation(async (args) => {
+        const found = await findOne(args)
+        if (args.req === req && !raced) {
+          raced = true
+          await changePasswordAs(payload, id, s2)
+        }
+        return found
+      })
+
+      await revoke(req, id, mode === 'only' ? [s0] : s1)
+      vi.restoreAllMocks()
+      expect(raced).toBe(true)
+
+      const stored = await rawUser(payload, 'users', id)
+      expect(stored.sessions?.map((s) => s.id) ?? []).toEqual(mode === 'only' ? [s2] : [])
+      expect(stored.name).toBe('Changed meanwhile')
+      expect(await meWith(relational, tokens.get(s0))).toBeNull()
+      expect(await meWith(relational, tokens.get(s1))).toBeNull()
+      if (mode === 'only') expect((await meWith(relational, tokens.get(s2)))?.id).toBe(id)
+    }
+  })
+
+  it.skipIf(adapterName() === 'mongo')(
+    're-reads the user after the row lock, so a write that committed before it stays',
+    async () => {
+      const { email, id, sids } = await signedInUser(payload)
+      const req = await requestTo(relational)
+
+      // The racing change commits after the revoke's first read but before its lock (the handle
+      // write); keeping only s1, it leaves exactly one session for the revoke to remove.
+      let raced = false
+      const updateOne = payload.db.updateOne.bind(payload.db)
+      vi.spyOn(payload.db, 'updateOne').mockImplementation(async (args) => {
+        if (args.req === req && args.data && USER_HANDLE_FIELD in args.data && !raced) {
+          expect('sessions' in args.data).toBe(false)
+          raced = true
+          await changePasswordAs(payload, id, sids[1]!)
+        }
+        return updateOne(args)
+      })
+
+      expect(await revoke(req, id, [sids[1]!])).toBe(1)
+      vi.restoreAllMocks()
+      expect(raced).toBe(true)
+
+      const stored = await rawUser(payload, 'users', id)
+      expect(stored.sessions ?? []).toEqual([])
+      expect(stored.name).toBe('Changed meanwhile')
+      expect(await canLogIn(payload, email, PASSWORD)).toBe(false)
+      expect(await canLogIn(payload, email, NEW_PASSWORD)).toBe(true)
+    },
+  )
 
   it('leaves every other field as it was, in every locale, with and without a user handle', async () => {
     for (const handle of [true, false]) {
