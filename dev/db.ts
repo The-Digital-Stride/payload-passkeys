@@ -15,6 +15,8 @@ export const adapterName = (): AdapterName => {
 }
 
 export type DatabaseOptions = {
+  /** Test only. Store blocks as JSON on the main table (Postgres and SQLite `blocksAsJSON`). */
+  blocksAsJSON?: boolean
   /**
    * Test only. `false` stands in for a host that builds no indexes (`ensureIndexes: false` and
    * Mongoose's `autoIndex: false`), to prove the plugin builds its own (design point 17).
@@ -31,7 +33,11 @@ const withDatabaseName = (url: string, name: string | undefined): string => {
   return parsed.toString()
 }
 
-export const databaseAdapter = ({ mongoDatabase, mongoIndexes = true }: DatabaseOptions = {}) => {
+export const databaseAdapter = ({
+  blocksAsJSON,
+  mongoDatabase,
+  mongoIndexes = true,
+}: DatabaseOptions = {}) => {
   const url = process.env.DATABASE_URL
   switch (adapterName()) {
     case 'mongo':
@@ -44,6 +50,7 @@ export const databaseAdapter = ({ mongoDatabase, mongoIndexes = true }: Database
       })
     case 'postgres':
       return postgresAdapter({
+        ...(blocksAsJSON ? { blocksAsJSON } : {}),
         migrationDir: path.resolve(dirname, 'migrations/postgres'),
         pool: {
           connectionString: url ?? 'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys',
@@ -51,6 +58,7 @@ export const databaseAdapter = ({ mongoDatabase, mongoIndexes = true }: Database
       })
     case 'sqlite':
       return sqliteAdapter({
+        ...(blocksAsJSON ? { blocksAsJSON } : {}),
         client: { url: url ?? `file:${path.resolve(dirname, 'dev.db')}` },
         migrationDir: path.resolve(dirname, 'migrations/sqlite'),
       })

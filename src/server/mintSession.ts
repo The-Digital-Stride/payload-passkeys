@@ -146,30 +146,21 @@ export const toResponseUser = async ({
 }
 
 /**
- * The stored fields a sessions-only write has to carry as well, sent back as read: every top-level
- * array and blocks field. The Postgres and SQLite adapters (@payloadcms/drizzle upsertRow) rewrite
- * them all on an update and delete the rows of any the data leaves out (localized arrays are
- * skipped when absent). MongoDB $sets only what it is given.
- */
-const deletedWhenAbsent = (
-  config: SanitizedCollectionConfig,
-  user: RawUser,
-): Record<string, unknown> => {
-  const data: Record<string, unknown> = {}
-  for (const field of config.flattenedFields) {
-    if (field.name === 'sessions' || user[field.name] === undefined) continue
-    if (field.type === 'blocks' || (field.type === 'array' && !field.localized)) {
-      data[field.name] = user[field.name]
-    }
-  }
-  return data
-}
-
-/**
- * Removes sessions from a user. Writes the filtered sessions (and deletedWhenAbsent's fields), not
- * the whole stored user as core's logout does, so a password change or any other write that lands
- * between this read and this write is kept. updatedAt is left alone, as in core's logout. `only`:
- * remove these sids. Otherwise keep only `keep` (or none). Returns how many were removed.
+ * Removes sessions from a user. `only`: remove these sids. Otherwise keep only `keep` (or none).
+ * Returns how many were removed. updatedAt is left alone (`updatedAt: null`, which every adapter
+ * takes as "don't touch it"), as in core's logout.
+ *
+ * - MongoDB: $sets only the filtered `sessions` (Mongoose wraps a plain update in $set), so a write
+ *   landing between this read and this write is kept.
+ * - Postgres and SQLite: Drizzle's upsertRow rewrites every array and blocks table a write touches,
+ *   so a partial write can delete a host's data. This writes the whole stored user back, the shape
+ *   core's logout writes. To keep a write that lands between the read and the write, it first
+ *   UPDATEs the user's handle (set once, never changed) to its stored value, a plain
+ *   `UPDATE … SET` that takes the row lock, and only then reads the user. In a transaction
+ *   (runSessionWrite) the lock holds until commit, so no other write to the user can commit in
+ *   between; without one (SQLite's default, or reauthenticate's revoke below, after Payload's login
+ *   has committed) it doesn't, and the race is core's logout's (design section 12). Locking first is also the order every refresh takes, so the two can't deadlock.
+ *   A user without a handle (never enrolled a passkey) skips the lock, as core's logout does.
  */
 export const revokeSessions = async ({
   collectionSlug,
@@ -184,13 +175,13 @@ export const revokeSessions = async ({
   req: PayloadRequest
   userId: number | string
 }): Promise<number> => {
-  const user = await loadRawUser(req, collectionSlug, userId)
-  if (!user || !Array.isArray(user.sessions) || user.sessions.length === 0) return 0
-  const sessions = user.sessions.filter((session) =>
-    only ? !only.includes(session.id) : session.id === keep,
-  )
-  if (sessions.length === user.sessions.length) return 0
-  // updatedAt: null tells every adapter not to touch it (core's logout and addSessionToUser).
+  const remaining = (user: null | RawUser): null | Session[] => {
+    if (!user || !Array.isArray(user.sessions) || user.sessions.length === 0) return null
+    const sessions = user.sessions.filter((session) =>
+      only ? !only.includes(session.id) : session.id === keep,
+    )
+    return sessions.length === user.sessions.length ? null : sessions
+  }
   const write = (data: Record<string, unknown>) =>
     req.payload.db.updateOne({
       collection: collectionSlug,
@@ -199,17 +190,26 @@ export const revokeSessions = async ({
       req,
       returning: false,
     })
-  // With no main-table column in the data, Drizzle rewrites only the sessions table and never
-  // locks the user's row, so the write interleaves with every parallel refresh (which upserts that
-  // row first) and deadlocks until the retries run out. An UPDATE of the handle (set once, never
-  // changed) takes the row lock first, inside the caller's transaction, as the whole-document
-  // write did. (Its upsert path can't carry the column: Postgres checks NOT NULL on the INSERT.)
-  const handle = user[USER_HANDLE_FIELD]
-  if (req.payload.db.name !== 'mongoose' && typeof handle === 'string' && handle) {
-    await write({ [USER_HANDLE_FIELD]: handle })
+
+  let user = await loadRawUser(req, collectionSlug, userId)
+  let sessions = remaining(user)
+  if (!user || !sessions) return 0
+
+  if (req.payload.db.name === 'mongoose') {
+    await write({ sessions })
+    return user.sessions!.length - sessions.length
   }
-  await write({ ...deletedWhenAbsent(authCollectionConfig(req, collectionSlug), user), sessions })
-  return user.sessions.length - sessions.length
+
+  const handle = user[USER_HANDLE_FIELD]
+  if (typeof handle === 'string' && handle) {
+    await write({ [USER_HANDLE_FIELD]: handle })
+    user = await loadRawUser(req, collectionSlug, userId)
+    sessions = remaining(user)
+    if (!user || !sessions) return 0
+  }
+  const removed = user.sessions!.length - sessions.length
+  await write({ ...user, sessions })
+  return removed
 }
 
 const sidFromToken = (token: string): string => {

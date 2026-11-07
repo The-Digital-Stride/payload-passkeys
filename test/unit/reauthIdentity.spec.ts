@@ -21,7 +21,6 @@ const fakeReq = () => {
   const updates: { id: unknown; sessions: unknown }[] = []
   const config = {
     auth: { loginWithUsername: { allowEmailLogin: true }, useSessions: true },
-    flattenedFields: [],
     trash: false,
   }
   const req = {
