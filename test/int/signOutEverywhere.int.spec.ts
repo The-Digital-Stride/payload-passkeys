@@ -147,6 +147,12 @@ describe('"Also sign out everywhere" under parallel refreshes (finding 1)', () =
     // Sessions are revoked before the passkey is deleted, so even without a transaction (SQLite
     // by default) a failed revoke leaves the passkey in place.
     expect(await passkeyExists(passkeyId)).toBe(true)
-    expect((await attacker.get('/api/users/me')).json.user).not.toBeNull()
+    expect((await ownerClient.get('/api/users/me')).json.user).not.toBeNull()
+    // In a transaction (Postgres) the markers roll back with the revoke, so nothing changed.
+    // Without one (SQLite by default, MongoDB) they are written first and stay, so the sessions
+    // the owner asked to end can't authenticate any more: the failure errs towards signed out.
+    const attackerUser = (await attacker.get('/api/users/me')).json.user
+    if (payload.db.name === 'postgres') expect(attackerUser).not.toBeNull()
+    else expect(attackerUser).toBeNull()
   })
 })

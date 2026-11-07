@@ -13,10 +13,25 @@
  * inside the refresh's transaction, after its write, so throwing rolls the write back; where there
  * is no transaction it removes the session again first.
  *
+ * Refresh is not the only write that can undo a revoke. Payload's update fills fields the request
+ * left out from the stored document, `sessions` included, and logout rewrites the whole list; one
+ * that read the user before the revoke and writes after it restores every revoked session, and no
+ * retry or confirmation can rule that out. So the marker is also checked where it can't be raced:
+ * hideRevokedSessions drops marked sessions from every findByID and find of the user, and Payload's
+ * local-jwt strategy loads the user with findByID and accepts the token only if its `sid` is in
+ * `user.sessions`. A marked session therefore never authenticates, whatever is stored.
+ * dropRevokedSessions keeps marked sessions out of every update through Payload, so a revived one
+ * is also removed from the database by the user's next update.
+ *
  * Uses only documented Payload exports; the session write itself is revokeSessions in
  * mintSession.ts.
  */
-import type { CollectionAfterRefreshHook, PayloadRequest } from 'payload'
+import type {
+  CollectionAfterOperationHook,
+  CollectionAfterRefreshHook,
+  CollectionBeforeChangeHook,
+  PayloadRequest,
+} from 'payload'
 
 import { commitTransaction, Forbidden, initTransaction, killTransaction } from 'payload'
 
@@ -30,6 +45,12 @@ export const MAX_WRITE_ATTEMPTS = 6
 export const CONFIRM_ROUNDS = 4
 /** Long enough for a refresh that was blocked on the revoke's locks to finish. */
 const SETTLE_MS = 40
+/**
+ * How long a marker outlives the token lifetime. A refresh that authenticated before the markers
+ * committed can still sign a token, a little later than the revoke started; the marker must outlast
+ * that token too.
+ */
+export const MARKER_MARGIN_MS = 10 * 60 * 1000
 
 /** The sessions could not be ended, or not confirmed ended. Safe to try again. */
 export class SessionWriteFailed extends Error {
@@ -45,6 +66,104 @@ const backoff = (attempt: number) => 10 * 2 ** attempt + Math.floor(Math.random(
 /** The marker's `challenge` value. Challenges are base64url, so never contain a colon. */
 export const revokedSessionMarker = (collectionSlug: string, sid: string): string =>
   `session:${collectionSlug}:${sid}`
+
+/**
+ * The ids among `sids` that have a revocation marker: one query on the unique `challenge` index.
+ * Throws when the lookup fails, so callers fail closed.
+ */
+export const findRevokedSids = async ({
+  collectionSlug,
+  options,
+  req,
+  sids,
+}: {
+  collectionSlug: string
+  options: Pick<ResolvedOptions, 'slugs'>
+  req: PayloadRequest
+  sids: string[]
+}): Promise<Set<string>> => {
+  const revoked = new Set<string>()
+  if (sids.length === 0) return revoked
+  const bySid = new Map(sids.map((sid) => [revokedSessionMarker(collectionSlug, sid), sid]))
+  const { docs } = await req.payload.db.find({
+    collection: options.slugs.challengeUses,
+    limit: 0,
+    pagination: false,
+    req,
+    where: { challenge: { in: [...bySid.keys()] } },
+  })
+  for (const doc of docs as { challenge?: unknown }[]) {
+    const sid = bySid.get(doc.challenge as string)
+    if (sid) revoked.add(sid)
+  }
+  return revoked
+}
+
+type SessionRow = { id?: unknown }
+type WithSessions = null | undefined | { id?: unknown; sessions?: unknown }
+
+const sessionIdsOf = (doc: WithSessions): string[] =>
+  doc && Array.isArray(doc.sessions)
+    ? (doc.sessions as SessionRow[])
+        .map((session) => session?.id)
+        .filter((id): id is string => typeof id === 'string')
+    : []
+
+/**
+ * afterOperation on each auth collection: drops marked sessions from the user documents a findByID
+ * or find returns. Payload's local-jwt strategy (payload/dist/auth/strategies/jwt.js) loads the
+ * user with findByID and refuses a token whose `sid` isn't in `user.sessions`, so this is what
+ * stops a revoked session that a racing write put back from authenticating anything: REST,
+ * GraphQL, the admin and the plugin's own endpoints alike. One query per read, none when the
+ * documents carry no sessions. A failed lookup throws, and the strategy treats a throw as signed
+ * out (fail closed).
+ */
+export const hideRevokedSessions =
+  (options: ResolvedOptions): CollectionAfterOperationHook =>
+  async ({ collection, operation, req, result }) => {
+    let docs: WithSessions[]
+    if (operation === 'findByID') docs = [result as WithSessions]
+    else if (operation === 'find') docs = (result as { docs?: WithSessions[] }).docs ?? []
+    else return result
+    const sids = docs.flatMap(sessionIdsOf)
+    if (sids.length === 0) return result
+    const revoked = await findRevokedSids({ collectionSlug: collection.slug, options, req, sids })
+    if (revoked.size === 0) return result
+    for (const doc of docs) {
+      if (!doc || !Array.isArray(doc.sessions)) continue
+      const sessions = doc.sessions as SessionRow[]
+      const kept = sessions.filter((session) => !revoked.has(session?.id as string))
+      doc.sessions = kept
+      if (kept.length !== sessions.length) {
+        req.payload.logger.warn({
+          collection: collection.slug,
+          msg: 'passkeys: ignored a revoked session that was written back',
+          userId: doc.id,
+        })
+      }
+    }
+    return result
+  }
+
+/**
+ * beforeChange on each auth collection: keeps marked sessions out of an update through Payload,
+ * which would otherwise write back whatever `sessions` it read. Not a defence on its own (a write
+ * that read before the revoke can pass this check before the markers exist); hideRevokedSessions
+ * is. Login, refresh and logout write with payload.db.updateOne and don't run it.
+ */
+export const dropRevokedSessions =
+  (options: ResolvedOptions): CollectionBeforeChangeHook =>
+  async ({ collection, data, operation, req }) => {
+    if (operation !== 'update' || !Array.isArray(data?.sessions)) return data
+    const sids = sessionIdsOf(data)
+    if (sids.length === 0) return data
+    const revoked = await findRevokedSids({ collectionSlug: collection.slug, options, req, sids })
+    if (revoked.size === 0) return data
+    data.sessions = (data.sessions as SessionRow[]).filter(
+      (session) => !revoked.has(session?.id as string),
+    )
+    return data
+  }
 
 type ErrorLike = {
   cause?: unknown
@@ -155,9 +274,10 @@ export const revokeAndMarkSessions = async ({
   const user = await loadRawUser(req, collectionSlug, userId)
   const sids = (user?.sessions ?? []).map((session) => session.id).filter((id) => id !== keep)
   if (sids.length === 0) return 0
-  // A revoked session can be refreshed for at most one token lifetime after the revoke.
+  // A token of a revoked session expires at most one token lifetime after the revoke (plus the
+  // time a refresh already under way takes); after that the marker has nothing left to refuse.
   const lifetimeMs = authCollectionConfig(req, collectionSlug).auth.tokenExpiration * 1000
-  const expiresAt = new Date(Date.now() + lifetimeMs).toISOString()
+  const expiresAt = new Date(Date.now() + lifetimeMs + MARKER_MARGIN_MS).toISOString()
   const mark = async () => {
     for (const sid of sids) {
       const challenge = revokedSessionMarker(collectionSlug, sid)
