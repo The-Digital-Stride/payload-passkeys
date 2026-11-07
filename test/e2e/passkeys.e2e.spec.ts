@@ -232,3 +232,22 @@ test('9. an old session must confirm the password before adding a passkey', asyn
   await expect(passkeyRows()).toHaveCount(2)
   expect(await signedInEmail(page)).toBe(DEV_USER.email)
 })
+
+test('10. with no passkey on the device, the button says how to add one', async () => {
+  // A device that has never saved a passkey for this site, as a phone reached by QR code was
+  // on the first try at ianhancock.com: the browser rejects with NotAllowedError, as it does
+  // for a dismissed prompt, so the copy covers both.
+  await authenticator.cdp.send('WebAuthn.clearCredentials', {
+    authenticatorId: authenticator.authenticatorId,
+  })
+  await signOut(page)
+  await signInWithPasskey().click()
+  await expect(page.getByRole('alert').filter({ hasText: /passkey/i })).toHaveText(
+    'No passkey was used. If you haven’t added one yet, sign in with your password, then add one from your account.',
+  )
+  await expect(page).toHaveURL(/\/admin\/login/)
+  expect(await signedInEmail(page)).toBeNull()
+  // The password still works.
+  await passwordSignIn(page)
+  expect(await signedInEmail(page)).toBe(DEV_USER.email)
+})

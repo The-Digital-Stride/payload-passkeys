@@ -45,7 +45,10 @@ export const en = {
     sectionDescription:
       'Sign in with your fingerprint, face or device PIN instead of your password. Your password still works.',
     sectionTitle: 'Passkeys',
-    signInCancelled: 'Passkey sign-in was cancelled.',
+    // The browser reports a dismissed prompt and "no passkey for this site" the same way
+    // (NotAllowedError), so the copy covers both: someone who has never added one is told how.
+    signInCancelled:
+      'No passkey was used. If you haven’t added one yet, sign in with your password, then add one from your account.',
     signInFailed: 'That passkey couldn’t be used. Try again or sign in with your password.',
     signingIn: 'Waiting for your passkey…',
     signInUnavailableHere:

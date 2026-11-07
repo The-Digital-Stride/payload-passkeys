@@ -5833,7 +5833,8 @@ export const en = {
     save: 'Save',
     sectionDescription: 'Sign in with your fingerprint, face or device PIN instead of your password. Your password still works.',
     sectionTitle: 'Passkeys',
-    signInCancelled: 'Passkey sign-in was cancelled.',
+    signInCancelled:
+      'No passkey was used. If you haven’t added one yet, sign in with your password, then add one from your account.',
     signInFailed: 'That passkey couldn’t be used. Try again or sign in with your password.',
     signingIn: 'Waiting for your passkey…',
     signInUnavailableHere: 'Passkey sign-in isn’t available at this address. Sign in with your password.',
