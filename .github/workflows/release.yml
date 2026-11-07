@@ -81,7 +81,7 @@ jobs:
           out="$RUNNER_TEMP/release"
           mkdir -p "$out"
           pnpm pack --pack-destination "$out"
-          tarball="$(cd "$out" && ls -1 *.tgz)"
+          tarball="$(cd "$out" && ls -1 -- *.tgz)"
           if [ "$(echo "$tarball" | wc -l)" -ne 1 ]; then echo "Expected one tarball: $tarball"; exit 1; fi
           node scripts/check-package.mjs "$out/$tarball"
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
