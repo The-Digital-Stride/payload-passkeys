@@ -37,7 +37,7 @@ export const en = {
     removeTitle: 'Remove “{{name}}”?',
     removed: 'Passkey removed.',
     removedSignOutUnconfirmed:
-      'Passkey removed, but other sessions might still be signed in. To be sure, change your password: that signs out every other session.',
+      'Passkey removed, but other sessions might still be signed in. Change your password, then sign out and check that the new one works. Also check the account’s API key.',
     rename: 'Rename',
     retry: 'Try again',
     renamed: 'Passkey renamed.',
