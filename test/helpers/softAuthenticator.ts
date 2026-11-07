@@ -36,7 +36,7 @@ type StoredCredential = {
   backupEligible: boolean
   backupState: boolean
   counter: number
-  id: Uint8Array
+  id: Bytes
   privateKey: CryptoKey
   publicKey: CryptoKey
   rpID: string
@@ -52,9 +52,16 @@ export type SoftAuthenticatorOptions = {
   origin: string
 }
 
+/**
+ * Byte arrays on a plain ArrayBuffer. TypeScript 5.9 reads a bare `Uint8Array` as backed by
+ * `ArrayBufferLike` (SharedArrayBuffer included), which Web Crypto and SimpleWebAuthn refuse;
+ * every array here is made with `new Uint8Array`, `Uint8Array.from` or `.slice`, so it is plain.
+ */
+type Bytes = Uint8Array<ArrayBuffer>
+
 const enc = new TextEncoder()
 
-const concat = (...parts: Uint8Array[]): Uint8Array => {
+const concat = (...parts: Bytes[]): Bytes => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
   let offset = 0
   for (const p of parts) {
@@ -64,30 +71,30 @@ const concat = (...parts: Uint8Array[]): Uint8Array => {
   return out
 }
 
-const u32 = (n: number): Uint8Array => {
+const u32 = (n: number): Bytes => {
   const b = new Uint8Array(4)
   new DataView(b.buffer).setUint32(0, n, false)
   return b
 }
 
-const u16 = (n: number): Uint8Array => {
+const u16 = (n: number): Bytes => {
   const b = new Uint8Array(2)
   new DataView(b.buffer).setUint16(0, n, false)
   return b
 }
 
-const sha256 = async (data: Uint8Array): Promise<Uint8Array> =>
+const sha256 = async (data: Bytes): Promise<Bytes> =>
   new Uint8Array(await crypto.subtle.digest('SHA-256', data))
 
-const aaguidBytes = (aaguid: string): Uint8Array => {
+const aaguidBytes = (aaguid: string): Bytes => {
   const hex = aaguid.replace(/-/g, '')
   if (!/^[0-9a-f]{32}$/i.test(hex)) throw new Error(`Bad AAGUID ${aaguid}`)
   return Uint8Array.from(hex.match(/../g)!.map((h) => parseInt(h, 16)))
 }
 
 /** DER-encode a raw (r || s) P-256 signature, which is what WebAuthn ES256 requires. */
-const rawToDer = (raw: Uint8Array): Uint8Array => {
-  const int = (bytes: Uint8Array): Uint8Array => {
+const rawToDer = (raw: Bytes): Bytes => {
+  const int = (bytes: Bytes): Bytes => {
     let i = 0
     while (i < bytes.length - 1 && bytes[i] === 0) i++
     let v = bytes.slice(i)
@@ -98,7 +105,7 @@ const rawToDer = (raw: Uint8Array): Uint8Array => {
   return concat(new Uint8Array([0x30, body.length]), body)
 }
 
-const coseES256 = async (publicKey: CryptoKey): Promise<Uint8Array> => {
+const coseES256 = async (publicKey: CryptoKey): Promise<Bytes> => {
   const raw = new Uint8Array(await crypto.subtle.exportKey('raw', publicKey)) // 0x04 || x || y
   return isoCBOR.encode(
     new Map<number, number | Uint8Array>([
@@ -124,7 +131,7 @@ const flagsByte = (o: {
   (o.bs ? FLAG_BS : 0) |
   (o.at ? FLAG_AT : 0)
 
-const clientData = (type: string, challenge: string, origin: string): Uint8Array =>
+const clientData = (type: string, challenge: string, origin: string): Bytes =>
   enc.encode(JSON.stringify({ type, challenge, origin, crossOrigin: false }))
 
 /**
