@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { buildDevConfig } from '../../dev/buildConfig.js'
 import { passkeysPlugin } from '../../src/index.js'
 import { bootPasskeys } from '../../src/server/boot.js'
+import { RECHECK_INTERVAL_MS } from '../../src/server/health.js'
 import { getPasskeysOptions } from '../../src/server/context.js'
 import type { TestClient } from '../helpers/api.js'
 
@@ -172,7 +173,21 @@ describe.runIf(isMongo)('on MongoDB with the host building no indexes', () => {
       await model.collection.deleteMany({ challenge: 'duplicate' })
     }
 
-    // A healthy boot turns them back on.
+    // With the cause gone and no restart, a request re-checks once the interval has passed (a
+    // first deploy's cold starts met a dropped Atlas connection and stayed off until restarted).
+    expect((await call(anonymous, '/sign-in/options')).status).toBe(503)
+    vi.useFakeTimers({ now: Date.now() + RECHECK_INTERVAL_MS, toFake: ['Date'] })
+    try {
+      expect((await owner.post('/api/users/passkeys/status')).json).toMatchObject({
+        available: true,
+      })
+      expect(await uniqueIndexOn(bare, 'passkey-challenge-uses', 'challenge')).toBeDefined()
+      expect((await call(anonymous, '/sign-in/options')).status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // A healthy boot keeps them on.
     await bootPasskeys(bare, getPasskeysOptions(bare))
     expect(await uniqueIndexOn(bare, 'passkey-challenge-uses', 'challenge')).toBeDefined()
     expect((await call(anonymous, '/sign-in/options')).status).toBe(200)
