@@ -1,7 +1,12 @@
 name: Release
 
-# Three jobs, so the npm OIDC token never meets the repository's dependencies:
-#   version  opens or updates the version PR (changesets/action). No id-token.
+# Four jobs, so neither the npm OIDC token nor the release App's private key ever meets the
+# repository's dependencies:
+#   changes  runs `changeset version` (dependency code) with a read-only token and uploads the
+#            change it makes as a patch. No write permission, no secret, no cache.
+#   version  installs nothing: checks the patch touches only the files a version bump may touch,
+#            and has changesets/action apply it and open or update the version PR, with a GitHub
+#            App token so the PR's checks run. No id-token.
 #   build    on a release commit (no pending changesets): installs, builds, packs and checks the
 #            tarball, and uploads it. Read-only token, no id-token, no cache.
 #   publish  behind the protected `release` environment: downloads that tarball and publishes it
@@ -21,7 +26,61 @@ concurrency:
   group: release
 
 jobs:
+  # The only job that runs @changesets/cli and the changelog generator. @changesets/changelog-github
+  # reads PR and author details through GITHUB_TOKEN, so this token reads, and nothing more.
+  changes:
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # Full history: the changelog generator finds the commit that added each changeset.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Nothing built: no dependency's install scripts run, and no cache is restored.
+      - uses: ./.github/actions/setup
+        with:
+          cache: ''
+          ignore-scripts: 'true'
+      # With no pending changesets (a release commit, or an ordinary merge after one) @changesets/cli
+      # 3 logs "No unreleased changesets found." and exits 1 (dist/version.mjs). That exit is the
+      # empty case, not a failure: the patch is empty and the version job never applies it. Any
+      # other failure stops the run.
+      - name: changeset version, as a patch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          out="$RUNNER_TEMP/version"
+          mkdir -p "$out"
+          status=0
+          pnpm changeset version 2>&1 | tee "$out/version.log" || status=$?
+          if [ "$status" -ne 0 ]; then
+            if ! grep -q 'No unreleased changesets found' "$out/version.log" || [ -n "$(git status --porcelain)" ]; then
+              echo "::error::changeset version failed (exit $status)."
+              exit "$status"
+            fi
+          fi
+          rm "$out/version.log"
+          git add --all
+          git diff --cached --binary > "$out/version.patch"
+          git diff --cached --stat
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          if-no-files-found: error
+          name: version-patch
+          path: ${{ runner.temp }}/version
+          retention-days: 1
+
   version:
+    needs: changes
+    # Holds the App's private key as an environment secret. The environment allows the `main`
+    # branch only, so no workflow run on another branch (a PR's included) can read the key. It has
+    # no required reviewer: every push to main runs this job.
+    environment: version-pr
     permissions:
       contents: write
       pull-requests: write
@@ -31,27 +90,48 @@ jobs:
       has-changesets: ${{ steps.changesets.outputs.has-changesets }}
     steps:
       # No persisted credentials: changesets/action pushes the version commit through the GitHub
-      # API with its own token (push-with-git-cli is false), not with git.
+      # API with its own token (push-with-git-cli is false), not with git. Nothing is installed in
+      # this job: changesets/action bundles its own code and, finding no @changesets/cli, skips its
+      # CLI version check; the patch is applied by scripts/apply-version-patch.sh (git and bash).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      # `changeset version` needs @changesets/cli and the changelog generator, nothing built: no
-      # dependency's install scripts run in a job holding a write token, and no cache is restored.
-      - uses: ./.github/actions/setup
+      # download-artifact v8 fails on a digest mismatch by default.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          cache: ''
-          ignore-scripts: 'true'
+          name: version-patch
+          path: ${{ runner.temp }}/version
+      # A GitHub App token for the version PR, so its pushes start CI and CodeQL: GitHub runs no
+      # workflow for a push or PR made with the job's GITHUB_TOKEN, which left the PR with no checks
+      # until someone closed and reopened it. The App (docs/release-setup.md) is installed on this
+      # repository only, with contents and pull requests and no `workflows` permission, so it can't
+      # change a workflow file (it can change files CI runs, such as package.json scripts and
+      # .github/actions/setup; CI holds no secrets and a read-only token). The token is narrowed
+      # again here and revoked when the job ends. Until the RELEASE_APP_CLIENT_ID variable is set
+      # the step is skipped, the job token is used, and the version PR needs a close and reopen.
+      # create-github-app-token v3.3.0 (inputs read from its action.yml at this SHA).
+      - id: app-token
+        if: vars.RELEASE_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
       # changesets/action v2.1.2 (inputs and outputs read from its action.yml at this SHA). No
-      # publish-script: with pending changesets it opens or updates the version PR; without any it
-      # does nothing and reports has-changesets 'false', which lets the build job run.
+      # publish-script: with pending changesets it resets changeset-release/main to this commit,
+      # runs the version script and opens or updates the version PR; without any it does nothing
+      # and reports has-changesets 'false', which lets the build job run. It runs the script with
+      # @actions/exec (no shell), passing the environment through, RUNNER_TEMP included.
       - id: changesets
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           commit-message: 'chore: release'
-          github-token: ${{ github.token }}
+          github-token: ${{ steps.app-token.outputs.token || github.token }}
           pr-title: 'chore: release'
-          version-script: pnpm changeset version
+          version-script: bash scripts/apply-version-patch.sh
 
   build:
     needs: version
@@ -159,6 +239,23 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
           tag="v$VERSION"
+          # A v* tag can be created before this job runs (the tag ruleset blocks only updating and
+          # deleting), and gh release create would attach the release to it wherever it points.
+          # Refuse a tag that isn't on the release commit. ls-remote fails the step if it can't
+          # reach GitHub. For an annotated tag the peeled ^{} line names the commit.
+          remote="$(git ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}")"
+          if [ -n "$remote" ]; then
+            # ls-remote matches patterns against the end of a ref name, so a decoy such as
+            # refs/heads/x/refs/tags/v1.2.3 would be listed too: compare whole names only.
+            commit="$(awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }' <<<"$remote")"
+            if [ -z "$commit" ]; then
+              commit="$(awk -v ref="refs/tags/$tag" '$2 == ref { print $1 }' <<<"$remote")"
+            fi
+            if [ -n "$commit" ] && [ "$commit" != "$GITHUB_SHA" ]; then
+              echo "::error::The tag $tag exists already, on $commit, not on the release commit $GITHUB_SHA. Check who made it before deleting it."
+              exit 1
+            fi
+          fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "The GitHub release $tag exists already."
             exit 0
