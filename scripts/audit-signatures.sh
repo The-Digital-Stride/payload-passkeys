@@ -7,11 +7,13 @@
 # pacote raises it when none of the package's attestation bundles carries a registry key id
 # (pacote/lib/registry.js), that is, when the attestations response came back without npm's
 # publish attestation. That response goes through npm's cache, so a retry alone reuses it: each
-# retry clears the cache first. A bad or missing registry signature fails with a different code on
-# every attempt and is never retried here.
+# retry clears the cache first. The registry has been seen serving the same incomplete response to
+# a direct request for 30 seconds or more, so the waits grow: 30, 60 and 90 seconds, about three
+# minutes in all (both jobs that run this have 20-minute timeouts and take about two). A bad or
+# missing registry signature fails with a different code on every attempt and is never retried here.
 set -uo pipefail
 
-attempts=3
+attempts=4
 for attempt in $(seq 1 "$attempts"); do
   output="$(npm audit signatures 2>&1)"
   status=$?
@@ -32,5 +34,5 @@ for attempt in $(seq 1 "$attempts"); do
   if [ "$attempt" -eq "$attempts" ]; then exit "$status"; fi
   echo "::warning::npm audit signatures could not match an attestation to a registry key (attempt $attempt of $attempts); clearing npm's cache and retrying."
   npm cache clean --force >/dev/null 2>&1 || true
-  sleep $((attempt * 10))
+  sleep $((attempt * 30))
 done
