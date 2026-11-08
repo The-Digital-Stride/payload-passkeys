@@ -68,6 +68,36 @@ describe('release workflow', () => {
     }
   })
 
+  it('gives no write permission to a job that installs dependencies', () => {
+    for (const [name, job] of jobs) {
+      if (!job.steps.some((step) => step.uses === './.github/actions/setup')) continue
+      for (const [scope, level] of Object.entries(job.permissions ?? {})) {
+        expect(level, `${name} has ${scope}: ${level}`).not.toBe('write')
+      }
+    }
+  })
+
+  it("keeps the release App's private key in one job, which runs no dependencies", () => {
+    const withKey = jobs.filter(([, job]) =>
+      JSON.stringify(job.steps).includes('secrets.RELEASE_APP_PRIVATE_KEY'),
+    )
+    expect(withKey.map(([name]) => name)).toEqual(['version'])
+    const [, version] = withKey[0]!
+    expect(version.environment).toBe('version-pr')
+    expect(version.steps.filter(touchesDependencies)).toEqual([])
+  })
+
+  it('versions in a read-only job and applies its patch only through the checking script', () => {
+    const { changes, version } = workflow.jobs
+    expect(changes?.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' })
+    expect(changes?.steps.some((step) => step.uses?.startsWith('actions/upload-artifact@'))).toBe(
+      true,
+    )
+    expect(version?.needs).toBe('changes')
+    const changesets = version?.steps.find((step) => step.uses?.startsWith('changesets/action@'))
+    expect(changesets?.with?.['version-script']).toBe('bash scripts/apply-version-patch.sh')
+  })
+
   it('builds the tarball in a read-only job and publishes that artifact', () => {
     const { build, publish } = workflow.jobs
     expect(build?.permissions).toEqual({ contents: 'read' })

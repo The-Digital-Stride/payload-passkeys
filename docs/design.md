@@ -266,7 +266,7 @@ All admin text goes through Payload's i18n (`config.i18n.translations` merged un
 - GitHub Actions: lint, types, unit, integration matrix (Payload minors × adapters), e2e, nightly latest/beta contract run; CodeQL; Dependabot (grouped, weekly).
 - Release, hardened as in review L9:
   - npm **trusted publishing** from a protected `release` workflow (OIDC, no npm token stored), with provenance;
-  - the OIDC token is held only by the `publish` job, which installs no dependencies and restores no cache: a read-only `build` job builds, packs and checks the tarball and hands it over as an artifact, and a separate `version` job without the token opens the version PR (`docs/release-setup.md`);
+  - the OIDC token is held only by the `publish` job, which installs no dependencies and restores no cache: a read-only `build` job builds, packs and checks the tarball and hands it over as an artifact, and the version PR is opened in two steps: a read-only `changes` job runs `changeset version` and hands over the result as a patch, and a `version` job that installs nothing checks it and opens the PR with a GitHub App token, so the PR's checks run and the App's key never meets the dependencies (`docs/release-setup.md`);
   - signed tags (**open**: the publish job's `gh release create` makes lightweight tags through the GitHub API, so the workflow does not meet this; `docs/release-setup.md` lists the options);
   - branch protection with required checks (pull requests and every CI check required, administrators included). Required reviews are **deferred** while there is one maintainer, who can't approve their own pull requests: see `docs/release-setup.md`;
   - every GitHub Action pinned to a commit SHA;
