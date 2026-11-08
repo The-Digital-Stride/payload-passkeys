@@ -54,7 +54,7 @@ Every release after the first works the same way.
 
 - [ ] **First `static` run:** compare the package count `npm audit signatures` reports with `pnpm list --depth Infinity --parseable | wc -l` (roughly; pnpm lists the workspace root too). The plan's claim that `npm audit signatures` works on a pnpm-installed tree was checked with npm 10.9.7; a count far below pnpm's means npm isn't seeing the tree, and the check proves less than it says.
 - [ ] **First Dependabot run:** confirm Dependabot can update this repository with pnpm 11. Its pnpm 11 support is unconfirmed, and pnpm 11 reads its settings (`minimumReleaseAge`, `allowBuilds`, `engineStrict`, `saveExact`) from `pnpm-workspace.yaml`, not `.npmrc`. If the npm ecosystem PRs fail, keep the `github-actions` updates and bump npm dependencies by hand.
-- [ ] **First release:** check on npmjs.com that the version shows provenance naming this repository, `release.yml` and the commit; run `npm audit signatures` in a consumer project.
+- [x] **First release:** check on npmjs.com that the version shows provenance naming this repository, `release.yml` and the commit; run `npm audit signatures` in a consumer project. Done 2026-11-08 for 1.0.0: the SLSA v1 provenance names `The-Digital-Stride/payload-passkeys`, `.github/workflows/release.yml`, `refs/heads/main` and the release commit `c7a1e78`, and the statement is in the public transparency log (Sigstore entry 3758557783). `npm audit signatures` in a consumer is still to run, once a site installs 1.0.0 from npm.
 
 ## Optional
 
