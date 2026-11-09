@@ -12,6 +12,7 @@
     "../src/**/*.tsx",
     "../test/**/*.ts",
     "../scripts/**/*.ts",
+    "../scripts/registry-keys-match.mjs",
     "next.config.mjs",
     "../playwright.config.ts",
     ".next/types/**/*.ts"
