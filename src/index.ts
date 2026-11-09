@@ -19,6 +19,9 @@ import { resolveOptions } from './server/options.js'
 import { PACKAGE_NAME } from './shared/constants.js'
 import { withPasskeysTranslations } from './translations/index.js'
 
+export { SignInRefused } from './server/mintSession.js'
+export { resetPasskeys } from './server/reset.js'
+export { signInVerifiedUser } from './server/signInVerifiedUser.js'
 export type * from './types.js'
 
 type AdminComponents = NonNullable<NonNullable<Config['admin']>['components']>
@@ -36,7 +39,10 @@ const withAdminComponents = (
     adminUserSlug && resolved.collections.includes(adminUserSlug)
       ? [
           {
-            clientProps: { collectionSlug: adminUserSlug },
+            clientProps: {
+              collectionSlug: adminUserSlug,
+              reauthentication: resolved.reauthentication,
+            },
             path: `${PACKAGE_NAME}/client#SignInWithPasskey`,
           },
         ]
@@ -50,6 +56,7 @@ const withAdminComponents = (
         clientProps: {
           collections: resolved.collections,
           enrolmentPrompt: resolved.enrolmentPrompt,
+          reauthentication: resolved.reauthentication,
         },
         path: `${PACKAGE_NAME}/client#PasskeysProvider`,
       },

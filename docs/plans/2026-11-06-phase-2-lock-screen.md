@@ -124,6 +124,8 @@ The test to keep: "edits made while locked are on the server after unlock" for d
 
 ### Task 4: `POST /passkeys/unlock/password`
 
+> **Amended 2026-11-09 (design D16, plan `2026-11-09-sso-sites.md` Decision 8):** skip this task when `reauthentication` is `'sign-in-again'`. In that mode the lock box shows "Sign in again" (logout, then the login page with `redirect`) to a user with no passkey, never a password field, and `unlock/password` is not registered, as `reauth` isn't in v1.
+
 - Needs a valid ticket. The body is `{ password }` only: the identifier comes from the ticket's user on the server, never from the body.
 - It runs `loginOperation`, as v1's `reauthenticate` does, so lockout and attempt counting apply.
 - Rate limit action `unlock.password`, keyed by the ticket's user.

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Config } from 'payload'
 
 import { passkeysPlugin } from '../../src/index.js'
+import { SSO_KEYS } from '../../src/shared/ssoKeys.js'
 import { en } from '../../src/translations/en.js'
 import { withPasskeysTranslations } from '../../src/translations/index.js'
 
@@ -56,6 +57,28 @@ describe('English copy', () => {
   })
 
   const strings = Object.entries(en.passkeys)
+
+  it('gives every key that mentions a password a neutral Sso sibling', () => {
+    const copy: Record<string, string> = en.passkeys
+    const mentioning = Object.keys(copy).filter(
+      (key) => !key.endsWith('Sso') && /password/i.test(copy[key]!),
+    )
+    // Only the password prompt itself may mention one without a sibling.
+    const prompt = [
+      'confirm',
+      'confirmPasswordBody',
+      'confirmPasswordTitle',
+      'password',
+      'wrongPassword',
+    ]
+    for (const key of mentioning.filter((k) => !prompt.some((p) => k === p))) {
+      expect(SSO_KEYS, key).toContain(key)
+    }
+    for (const key of SSO_KEYS) {
+      expect(copy[`${key}Sso`], key).toBeTypeOf('string')
+      expect(copy[`${key}Sso`], key).not.toMatch(/password/i)
+    }
+  })
 
   it('uses UK spelling', () => {
     const us =

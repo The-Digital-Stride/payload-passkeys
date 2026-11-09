@@ -29,6 +29,8 @@ export type EventFields = {
   aaguid?: null | string
   collection: string
   credentialId?: string
+  /** How a sign-in was proved: a passkey, or a host's SSO callback (signInVerifiedUser). */
+  method?: 'passkey' | 'sso'
   reason?: string
   userId?: number | string
 }

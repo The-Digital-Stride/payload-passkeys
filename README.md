@@ -45,22 +45,23 @@ With `serverURL` set, that is enough: the RP ID and the allowed origin come from
 
 Every option is optional.
 
-| Option                       | Type                                         | Default                                                          | What it does                                                                                                                                                      |
-| ---------------------------- | -------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `clientIp`                   | `(req) => string \| null \| undefined`       | the rightmost `x-forwarded-for` entry                            | Where the caller's IP comes from, for `rateLimit` and failure logs. See [Rate limiting](#rate-limiting).                                                          |
-| `collections`                | `string[]`                                   | `[admin.user]`, else the first auth collection                   | Auth collections that get passkeys. Each gets its own endpoints and fields.                                                                                       |
-| `enabled`                    | `boolean`                                    | `true`                                                           | `false` keeps the collections, fields, translations and the reset command, but adds no endpoints and no admin components. Turning it off never needs a migration. |
-| `enrolmentPrompt`            | `boolean`                                    | `true`                                                           | Offer "Sign in faster with a passkey" after a password sign-in.                                                                                                   |
-| `freshSessionMinutes`        | `number` (1 to 60)                           | `10`                                                             | How recent the sign-in must be to add a passkey without re-entering the password.                                                                                 |
-| `limits.anonymousChallenges` | `number`                                     | `500`                                                            | Outstanding sign-in challenges across the whole site. Past it, passkey sign-in answers 429 until challenges expire (5 minutes). Password sign-in is unaffected.   |
-| `limits.passkeysPerUser`     | `number`                                     | `20`                                                             | Passkeys per account.                                                                                                                                             |
-| `logging.ip`                 | `'none' \| 'truncated' \| 'full'`            | `'truncated'`                                                    | IP addresses in failure logs: none, /24 (IPv4) or /48 (IPv6), or in full. Never logged on success.                                                                |
-| `onSignIn`                   | `(args) => void \| Promise<void>`            | none                                                             | Runs on every passkey sign-in. See [What a passkey sign-in runs](#what-a-passkey-sign-in-runs).                                                                   |
-| `origins`                    | `string[]`                                   | `[serverURL's origin]`                                           | Exact origins (scheme, host, port) the admin is served from. HTTPS, except on localhost. Each must be the RP ID or under it.                                      |
-| `rateLimit`                  | `(args) => boolean \| Promise<boolean>`      | allows everything                                                | Called on every request to the plugin's endpoints. See [Rate limiting](#rate-limiting).                                                                           |
-| `rpID`                       | `string`                                     | the hostname of the first origin                                 | The WebAuthn relying-party ID: the domain passkeys belong to.                                                                                                     |
-| `rpName`                     | `string`                                     | `admin.meta.title`, else the RP ID                               | The name some passkey managers show.                                                                                                                              |
-| `slugs`                      | `{ passkeys?, challenges?, challengeUses? }` | `'passkeys'`, `'passkey-challenges'`, `'passkey-challenge-uses'` | Rename the plugin's collections if the names are taken.                                                                                                           |
+| Option                       | Type                                         | Default                                                          | What it does                                                                                                                                                                                                 |
+| ---------------------------- | -------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `clientIp`                   | `(req) => string \| null \| undefined`       | the rightmost `x-forwarded-for` entry                            | Where the caller's IP comes from, for `rateLimit` and failure logs. See [Rate limiting](#rate-limiting).                                                                                                     |
+| `collections`                | `string[]`                                   | `[admin.user]`, else the first auth collection                   | Auth collections that get passkeys. Each gets its own endpoints and fields.                                                                                                                                  |
+| `enabled`                    | `boolean`                                    | `true`                                                           | `false` keeps the collections, fields, translations and the reset command, but adds no endpoints and no admin components. Turning it off never needs a migration.                                            |
+| `enrolmentPrompt`            | `boolean`                                    | `true`                                                           | Offer "Sign in faster with a passkey" after a password sign-in.                                                                                                                                              |
+| `freshSessionMinutes`        | `number` (1 to 60)                           | `10`                                                             | How recent the sign-in must be to add a passkey without re-entering the password.                                                                                                                            |
+| `limits.anonymousChallenges` | `number`                                     | `500`                                                            | Outstanding sign-in challenges across the whole site. Past it, passkey sign-in answers 429 until challenges expire (5 minutes). Password sign-in is unaffected.                                              |
+| `limits.passkeysPerUser`     | `number`                                     | `20`                                                             | Passkeys per account.                                                                                                                                                                                        |
+| `logging.ip`                 | `'none' \| 'truncated' \| 'full'`            | `'truncated'`                                                    | IP addresses in failure logs: none, /24 (IPv4) or /48 (IPv6), or in full. Never logged on success.                                                                                                           |
+| `onSignIn`                   | `(args) => void \| Promise<void>`            | none                                                             | Runs on every passkey sign-in, and on every `signInVerifiedUser` sign-in (`args.method` is `'passkey'` or `'sso'`). See [What a passkey sign-in runs](#what-a-passkey-sign-in-runs).                         |
+| `origins`                    | `string[]`                                   | `[serverURL's origin]`                                           | Exact origins (scheme, host, port) the admin is served from. HTTPS, except on localhost. Each must be the RP ID or under it.                                                                                 |
+| `rateLimit`                  | `(args) => boolean \| Promise<boolean>`      | allows everything                                                | Called on every request to the plugin's endpoints. See [Rate limiting](#rate-limiting).                                                                                                                      |
+| `reauthentication`           | `'password' \| 'sign-in-again'`              | `'password'`                                                     | How an admin proves it's them when their sign-in is older than `freshSessionMinutes`. `'sign-in-again'` is for admins who sign in with SSO. See [Admins who sign in with SSO](#admins-who-sign-in-with-sso). |
+| `rpID`                       | `string`                                     | the hostname of the first origin                                 | The WebAuthn relying-party ID: the domain passkeys belong to.                                                                                                                                                |
+| `rpName`                     | `string`                                     | `admin.meta.title`, else the RP ID                               | The name some passkey managers show.                                                                                                                                                                         |
+| `slugs`                      | `{ passkeys?, challenges?, challengeUses? }` | `'passkeys'`, `'passkey-challenges'`, `'passkey-challenge-uses'` | Rename the plugin's collections if the names are taken.                                                                                                                                                      |
 
 Every option at its default value, with explicit domains:
 
@@ -238,12 +239,12 @@ It does **not** run the collection's `beforeOperation` or `afterOperation` hooks
 ```ts
 export const withAudit = passkeysPlugin({
   // Runs inside the sign-in transaction, after the beforeLogin hooks. Throw to refuse.
-  onSignIn: ({ collection, passkey, req, user }) => {
+  onSignIn: ({ collection, method, passkey, req, user }) => {
     req.payload.logger.info({
       collection,
       credentialIdPrefix: passkey?.credentialId.slice(0, 8),
       event: 'audit.admin_signed_in',
-      method: 'passkey',
+      method, // 'passkey', or 'sso' when the sign-in came from signInVerifiedUser
       msg: 'audit.admin_signed_in',
       userId: user.id,
     })
@@ -254,6 +255,118 @@ export const withAudit = passkeysPlugin({
 `user` is a copy of the stored user document after the `beforeLogin` hooks, without Payload's internal fields (`hash`, `salt`, `sessions`, `apiKey`, `apiKeyIndex`, the reset and verification tokens, `loginAttempts`, `lockUntil` and `passkeyUserHandle`); changing it changes nothing. `passkey` carries the passkey's public details only. To write to a collection from `onSignIn`, pass `req` so the write joins the sign-in transaction.
 
 **A password lockout doesn't block a passkey.** After too many wrong passwords Payload locks the account (`lockUntil`). A passkey can't be guessed, and honouring the lock would let anyone who knows an admin's email keep them out indefinitely. So a passkey sign-in goes ahead, logs `passkeys.signed_in_while_locked`, and clears the failed-attempt count and the lock, as a successful password sign-in would.
+
+## Admins who sign in with SSO
+
+If your admins sign in with Google or another SSO provider, they have no password they know. Two things in the default set-up don't suit them: adding a passkey after an older sign-in asks for a password, and a site that wants to start a Payload session from its SSO callback has to keep a password for every user to call `payload.login`. This release covers both.
+
+### Sign in again instead of the password
+
+```ts
+export const forSsoAdmins = passkeysPlugin({ reauthentication: 'sign-in-again' })
+```
+
+With `reauthentication: 'sign-in-again'`:
+
+- The `reauth` endpoint is not registered (it answers 404).
+- `register/options` still answers 403 `reauth_required` when the sign-in is older than `freshSessionMinutes`.
+- Adding a passkey on an older session shows a "Sign in again first" dialog with one button. It signs the admin out and returns them to the login page, with `redirect` set to the page they were on. No password box appears, so nobody can lock themselves out by guessing.
+- Text that mentions a password switches to neutral wording. Each such string has a sibling key ending `Sso` (`busySso`, `enrolBodySso`, `removeLastSso`, `removedSignOutUnconfirmedSso`, `sectionDescriptionSso`, `signInCancelledSso`, `signInFailedSso`, `signInUnavailableHereSso`), plus `signInAgain`, `signInAgainTitle` and `signInAgainBody` for the dialog. Override them as in [Translations](#translations). If you override a base key such as `sectionDescription` and not its `Sso` sibling, your text is used in both modes.
+
+Anything other than `'password'` or `'sign-in-again'` (including `null`) stops the server at boot with a clear error.
+
+To reword one of the `Sso` strings, type your override with the exported `PasskeysTranslations`:
+
+```ts
+import type { PasskeysTranslations } from '@the-digital-stride/payload-passkeys'
+
+const ssoWording: PasskeysTranslations = {
+  enrolBodySso: 'Next time, use your fingerprint, face or device PIN instead of Google.',
+}
+
+export const ssoI18n: Config['i18n'] = {
+  translations: { en: { passkeys: ssoWording } },
+}
+```
+
+### Signing in from your SSO callback
+
+`signInVerifiedUser` creates an ordinary Payload session for a user your code has already verified, without a password. It runs what a passkey sign-in runs: the session is added, failed-login attempts and any lock are cleared, the collection's `beforeLogin` hooks run (and can refuse), then `onSignIn` with `method: 'sso'`, then the token is signed and `afterLogin` hooks run. It returns `{ exp, setCookie, user }`, where `setCookie` is a complete `Set-Cookie` header value.
+
+**It signs in as whoever you name and checks nothing about who they are.** Call it only after your callback has verified the OAuth `state` and the provider's response. Never call it from anything a visitor can reach without that check. It is server-only: import it from the package's main entry, never from client code.
+
+```ts
+// app/api/auth/google/callback/route.ts
+import { signInVerifiedUser } from '@the-digital-stride/payload-passkeys'
+import { getPayload } from 'payload'
+import config from '@payload-config'
+import { NextResponse } from 'next/server.js'
+
+export const GET = async (request: Request) => {
+  // Check the OAuth `state` and the provider's response FIRST. signInVerifiedUser signs in as
+  // whoever you name, so call it only after those checks have passed.
+  // `redirectTo` is the login page's `redirect`, carried through the OAuth `state`.
+  const { redirectTo, userId } = await verifyGoogleCallback(request)
+
+  const payload = await getPayload({ config })
+  const { setCookie } = await signInVerifiedUser({
+    collection: 'users',
+    headers: request.headers, // so beforeLogin, onSignIn and IP logging see the real request
+    payload,
+    userId,
+  })
+  const response = NextResponse.redirect(
+    new URL(/^\/admin(?:[/?#]|$)/.test(redirectTo) ? redirectTo : '/admin', request.url),
+  )
+  // Delete or set any other cookies through response.cookies BEFORE appending: Next rewrites the
+  // whole Set-Cookie header from its own cookie map whenever response.cookies changes.
+  response.cookies.delete('oauth_state')
+  response.headers.append('Set-Cookie', setCookie)
+  return response
+}
+```
+
+Things to know:
+
+- **Find the user by the provider's stable ID.** Match on the provider's subject (`sub`, or `oid` with the tenant for Microsoft Entra), not on an email address the person can set in their provider profile. If you must match on email, require `email_verified` from a provider that owns that domain. Otherwise someone could set their provider email to an admin's address and be signed in as that admin.
+- **Pass `headers`.** Without them, `beforeLogin`, `onSignIn` and the IP in logs see an empty request.
+- **Cookie order.** Delete or set your other cookies through `response.cookies` before appending `setCookie`. Next rewrites the whole `Set-Cookie` header from its own cookie map whenever `response.cookies` changes, which would drop one appended earlier.
+- **Cookie settings.** The cookie follows the collection's `auth.cookies` settings, and Payload's default is `secure: false`. Set `secure: true` (and `sameSite`) in production.
+- **Return to the right page.** The sign-in-again dialog sends the admin to the login page with `?redirect=<admin path>`. Carry that `redirect` through the OAuth `state` (or a cookie), and send the admin back to it only after checking it is a same-site admin path, as the sample does. Otherwise they lose their place and the "add it straight away" step doesn't happen.
+- **Hooks see a local request.** `beforeLogin`, `onSignIn` and `afterLogin` run with `req.payloadAPI === 'local'` and the default locale and language, unlike a REST login. A hook that branches on `payloadAPI` should allow for that; `onSignIn`'s `method: 'sso'` is the reliable signal.
+- **Errors.** It throws a plain `Error` when `collection` isn't one of the plugin's collections, and `SignInRefused` (reason `user_missing`) when the user doesn't exist, both before anything is written. It also throws when the user is unverified (where the collection uses `auth.verify`), or when a `beforeLogin` hook or `onSignIn` refuses; nothing is left behind in those cases. Hosts can `import { SignInRefused }` from the package and check `error.reason`.
+- **It works with `enabled: false`.** Turning passkeys off never breaks an SSO sign-in that uses it.
+- **Rate limits.** `rateLimit` hooks may skip `action === 'status'`: it is anonymous, read-only and runs on every login-page view.
+
+### Offboarding
+
+A `beforeLogin` hook that refuses disabled users covers SSO and passkey sign-ins alike. `resetPasskeys` removes a leaver's passkeys and ends all their sessions. Pass the hook's `req` so the removal joins its transaction:
+
+```ts
+import type { CollectionAfterChangeHook, CollectionBeforeLoginHook } from 'payload'
+import { UnauthorizedError } from 'payload'
+import { resetPasskeys } from '@the-digital-stride/payload-passkeys'
+
+// Refuse disabled users on every sign-in: SSO and passkeys both run beforeLogin.
+export const refuseDisabled: CollectionBeforeLoginHook = ({ req, user }) => {
+  if (user.disabled) throw new UnauthorizedError(req.t)
+  return user
+}
+
+// And clean up when someone is disabled.
+export const cleanUpOnDisable: CollectionAfterChangeHook = async ({ doc, previousDoc, req }) => {
+  if (doc.disabled && !previousDoc.disabled) {
+    await resetPasskeys({ collection: 'users', id: doc.id, payload: req.payload, req })
+  }
+}
+```
+
+`resetPasskeys({ collection, email?, id?, payload, req? })` returns `{ removedPasskeys, removedSessions, userId }`. Trade-off: inside your transaction a write conflict is not retried, so a save that races the user's own token refresh fails and has to be made again. Without `req` it runs in its own transaction and retries, as the command line does.
+
+Two Payload behaviours to allow for:
+
+- **`select`:** an update made with `select` strips unselected fields from `doc` in `afterChange`. Read the new value from `data` when it's there (`'disabled' in data ? data.disabled : doc.disabled`).
+- **Sign-in at the same moment:** when Payload adds a session (its own login, or a passkey or SSO sign-in), it writes back the whole user record it read moments earlier. A sign-in that lands within milliseconds of the save can therefore restore the old `disabled` value. After disabling someone, reload the user and check that the change held.
 
 ## Recovery
 

@@ -167,6 +167,44 @@ describe('registerFlow', () => {
   })
 })
 
+describe('registerFlow in sign-in-again mode', () => {
+  const stale = () => vi.fn<Api>(async () => reply(403, { error: 'reauth_required' }))
+
+  it('asks to sign in again and never calls the reauth endpoint', async () => {
+    const api = stale()
+    const askSignInAgain = vi.fn(async () => true)
+    const askPassword = vi.fn(async () => 'pw')
+    const b = browser()
+    const result = await registerFlow({
+      api,
+      askPassword,
+      askSignInAgain,
+      browser: b,
+      onReauthenticated: vi.fn(),
+      reauthentication: 'sign-in-again',
+    })
+    expect(askSignInAgain).toHaveBeenCalledTimes(1)
+    expect(askPassword).not.toHaveBeenCalled()
+    expect(api).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/reauth'))).toBe(false)
+    expect(b.startRegistration).not.toHaveBeenCalled()
+    expect(result.ok).toBe(false)
+  })
+
+  it('returns addCancelled when the dialog is dismissed', async () => {
+    expect(
+      await registerFlow({
+        api: stale(),
+        askPassword: async () => null,
+        askSignInAgain: async () => false,
+        browser: browser(),
+        onReauthenticated: vi.fn(),
+        reauthentication: 'sign-in-again',
+      }),
+    ).toEqual({ message: 'addCancelled', ok: false })
+  })
+})
+
 describe('syncAcceptedCredentials', () => {
   it('sends the signal and never throws', async () => {
     const b = browser({ sendSignal: vi.fn(async () => Promise.reject(new Error('unsupported'))) })

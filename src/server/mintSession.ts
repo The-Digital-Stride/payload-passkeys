@@ -21,7 +21,7 @@ import {
 } from 'payload'
 import { addSessionToUser, generatePayloadCookie, getLoginOptions } from 'payload/shared'
 
-import type { OnSignInHook, PublicPasskey } from '../types.js'
+import type { OnSignInArgs, OnSignInHook, PublicPasskey } from '../types.js'
 
 import { USER_HANDLE_FIELD } from '../shared/constants.js'
 
@@ -45,10 +45,14 @@ export type SignInResponseBody = {
 export type SessionResult = { body: SignInResponseBody; setCookie: string; sid: string }
 export type MintResult = SessionResult & { wasLocked: boolean }
 
+/**
+ * A sign-in the plugin refused (passkey or signInVerifiedUser). `reason` is a code for logs, for
+ * example 'user_missing', 'unverified' or 'sessions_disabled'.
+ */
 export class SignInRefused extends Error {
   readonly reason: string
   constructor(reason: string) {
-    super(`Passkey sign-in refused: ${reason}`)
+    super(`Sign-in refused: ${reason}`)
     this.name = 'SignInRefused'
     this.reason = reason
   }
@@ -277,18 +281,22 @@ const cookieFor = (req: PayloadRequest, config: SanitizedCollectionConfig, token
   })
 
 /**
- * Mints an ordinary Payload session for a user who has just proved a passkey. Mirrors
+ * Mints an ordinary Payload session for a user who has just proved a passkey, or whom a host's
+ * SSO callback has verified (signInVerifiedUser, `method: 'sso'`). Mirrors
  * loginOperation's order (Payload 3.90.2): transaction, addSessionToUser, getFieldsToSign,
  * resetLoginAttempts, beforeLogin, jwtSign, afterLogin, commit; on any throw, revoke and roll back.
  */
 export const mintSession = async ({
   collectionSlug,
+  method = 'passkey',
   onSignIn,
   passkey,
   req,
   userId,
 }: {
   collectionSlug: string
+  /** What proved the user, for onSignIn. Default 'passkey'. */
+  method?: OnSignInArgs['method']
   onSignIn?: OnSignInHook
   passkey?: PublicPasskey
   req: PayloadRequest
@@ -344,7 +352,13 @@ export const mintSession = async ({
     }
     if (onSignIn) {
       // A copy without hash, salt, sessions and the rest, so a host can't log them by accident.
-      await onSignIn({ collection: collectionSlug, passkey, req, user: withoutSecrets(hookedUser) })
+      await onSignIn({
+        collection: collectionSlug,
+        method,
+        ...(method === 'passkey' && passkey ? { passkey } : {}),
+        req,
+        user: withoutSecrets(hookedUser),
+      })
     }
 
     const { exp, token } = await jwtSign({

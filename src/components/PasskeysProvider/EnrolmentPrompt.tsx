@@ -9,25 +9,35 @@ import type { Api } from '../shared/api.js'
 import { announcePasskeysChanged } from '../shared/events.js'
 import { registerFlow } from '../shared/flows.js'
 import { usePasswordPrompt } from '../shared/PasswordPrompt.js'
+import type { Reauthentication } from '../shared/reauthentication.js'
+import { useSignInAgainPrompt } from '../shared/SignInAgainPrompt.js'
 import { usePasskeysT } from '../shared/usePasskeysT.js'
 
 const browser = { sendSignal, startAuthentication, startRegistration }
 
 type Props = {
   api: Api
+  collectionSlug: string
   /** Hides the card; `choice` is what to remember, if anything. */
   onDone: (choice?: 'never' | 'not-now') => void
+  reauthentication?: Reauthentication
 }
 
 /**
  * "Sign in faster with a passkey" (design 4.4): a non-modal card in the corner. It never takes
  * focus; Esc inside it means "Not now".
  */
-export const EnrolmentPrompt: React.FC<Props> = ({ api, onDone }) => {
+export const EnrolmentPrompt: React.FC<Props> = ({
+  api,
+  collectionSlug,
+  onDone,
+  reauthentication = 'password',
+}) => {
   const { setUser } = useAuth()
-  const { t } = usePasskeysT()
+  const { t } = usePasskeysT(reauthentication)
   const id = useId()
   const prompt = usePasswordPrompt('passkeys-enrol-password')
+  const signInAgain = useSignInAgainPrompt('passkeys-enrol-sign-in-again', collectionSlug)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<null | PasskeysTranslationKey>(null)
 
@@ -38,11 +48,13 @@ export const EnrolmentPrompt: React.FC<Props> = ({ api, onDone }) => {
       const result = await registerFlow({
         api,
         askPassword: prompt.ask,
+        askSignInAgain: signInAgain.ask,
         browser,
         onReauthenticated: (body) => {
           prompt.close()
           setUser(body as never)
         },
+        reauthentication,
       })
       if (result.ok) {
         toast.success(t('added'))
@@ -53,6 +65,7 @@ export const EnrolmentPrompt: React.FC<Props> = ({ api, onDone }) => {
       }
     } finally {
       prompt.close()
+      signInAgain.close()
       setAdding(false)
     }
   }
@@ -122,6 +135,7 @@ export const EnrolmentPrompt: React.FC<Props> = ({ api, onDone }) => {
         </div>
       </div>
       {prompt.element}
+      {signInAgain.element}
     </>
   )
 }

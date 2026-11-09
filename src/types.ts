@@ -1,4 +1,6 @@
-import type { PayloadRequest } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
+
+import type { PasskeysTranslationKey } from './translations/en.js'
 
 export type PasskeyAction =
   | 'delete'
@@ -46,6 +48,9 @@ export type PublicPasskey = {
 
 export type OnSignInArgs = {
   collection: string
+  /** 'passkey' for a passkey sign-in; 'sso' for signInVerifiedUser (a host's own SSO callback). */
+  method: 'passkey' | 'sso'
+  /** The passkey used. Set only when `method` is 'passkey'. */
   passkey?: PublicPasskey
   req: PayloadRequest
   /**
@@ -62,6 +67,14 @@ export type OnSignInArgs = {
  * sign-in does not run the collection's beforeOperation/afterOperation hooks (review L8).
  */
 export type OnSignInHook = (args: OnSignInArgs) => Promise<void> | void
+
+/**
+ * How an admin whose sign-in is older than `freshSessionMinutes` proves it's them before adding a
+ * passkey. 'password': re-enter the password (the default). 'sign-in-again': sign out and sign in
+ * again, for admins who sign in with SSO and have no password they know. In that mode the `reauth`
+ * endpoint is not registered.
+ */
+export type Reauthentication = 'password' | 'sign-in-again'
 
 export type PasskeysPluginOptions = {
   /**
@@ -90,9 +103,42 @@ export type PasskeysPluginOptions = {
   /** Exact origins (scheme, host, port) the admin is served from. Default: [serverURL origin]. */
   origins?: string[]
   rateLimit?: RateLimitHook
+  /**
+   * How an admin proves it's them when their sign-in is older than freshSessionMinutes.
+   * Default 'password'. Use 'sign-in-again' when admins sign in with SSO.
+   */
+  reauthentication?: Reauthentication
   /** WebAuthn relying-party ID. Default: hostname of serverURL. */
   rpID?: string
   /** Shown by some passkey managers. Default: admin.meta.title, else the RP ID. */
   rpName?: string
   slugs?: { challengeUses?: string; challenges?: string; passkeys?: string }
 }
+
+export type SignInVerifiedUserArgs = {
+  /** The auth collection's slug. Must be one of the plugin's `collections`. */
+  collection: string
+  /**
+   * The incoming request's headers, so beforeLogin hooks, onSignIn and IP logging see the real
+   * request. Optional, but pass them: without them those see empty headers.
+   */
+  headers?: Headers
+  payload: Payload
+  /** The id of a user the caller has already verified (for example in an OAuth callback). */
+  userId: number | string
+}
+
+export type SignInVerifiedUserResult = {
+  /** When the token expires, in seconds since the epoch. */
+  exp: number
+  /** A complete Set-Cookie header value for Payload's auth cookie. */
+  setCookie: string
+  /** The user as /me returns it, without hash, salt, sessions or other secrets. */
+  user: Record<string, unknown>
+}
+
+/**
+ * Overrides for the plugin's admin text, by key: the `passkeys` namespace of one language in
+ * Payload's `i18n.translations`, for example `{ en: { passkeys: overrides } }`.
+ */
+export type PasskeysTranslations = Partial<Record<PasskeysTranslationKey, string>>

@@ -2,6 +2,8 @@ import { withPayload } from '@payloadcms/next/withPayload'
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The e2e suite runs a second dev app beside the first; each needs its own build folder.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   // The e2e preview-host test loads the admin from http://127.0.0.1:3000.
   allowedDevOrigins: ['127.0.0.1'],
   webpack: (webpackConfig) => {

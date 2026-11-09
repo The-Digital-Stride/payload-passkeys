@@ -138,6 +138,7 @@ export const signInVerifyEndpoint = (options: ResolvedOptions, collectionSlug: s
       try {
         minted = await mintSession({
           collectionSlug,
+          method: 'passkey',
           onSignIn: options.onSignIn,
           passkey: toPublicPasskey(row),
           req,
@@ -151,9 +152,9 @@ export const signInVerifyEndpoint = (options: ResolvedOptions, collectionSlug: s
         return refuse(reason, withUser)
       }
 
-      if (minted.wasLocked)
-        logEvent(req, options, 'passkeys.signed_in_while_locked', { ...base, ...withUser })
-      logEvent(req, options, 'passkeys.signed_in', { ...base, ...withUser })
+      const signedIn = { ...base, ...withUser, method: 'passkey' as const }
+      if (minted.wasLocked) logEvent(req, options, 'passkeys.signed_in_while_locked', signedIn)
+      logEvent(req, options, 'passkeys.signed_in', signedIn)
       return json(req, 200, minted.body, [minted.setCookie, clear])
     },
     options,
