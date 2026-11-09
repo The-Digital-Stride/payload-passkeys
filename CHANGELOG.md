@@ -1,5 +1,11 @@
 # @the-digital-stride/payload-passkeys
 
+## 1.1.0
+
+### Minor Changes
+
+- [#20](https://github.com/The-Digital-Stride/payload-passkeys/pull/20) [`25a3517`](https://github.com/The-Digital-Stride/payload-passkeys/commit/25a351762f07962b6e68e53e6670dac7ca889367) Thanks [@thedigitalstride](https://github.com/thedigitalstride)! - SSO sites: `reauthentication: 'sign-in-again'` replaces the password prompt with a "Sign in again" dialog for admins who sign in with SSO, `signInVerifiedUser` starts a Payload session from a host's own SSO callback, `resetPasskeys` is exported for offboarding hooks, `SignInRefused` is exported so hosts can check `error.reason`, and `onSignIn` receives `method` (`'passkey'` or `'sso'`). The reset command's message now names the collection.
+
 ## 1.0.0
 
 ### Major Changes
