@@ -5,7 +5,7 @@
 // the default registry against the TUF list, but any other registry host against that host's own
 // keys API (npm/lib/utils/verify-signatures.js, setKeys), so scripts/audit-signatures.sh runs this
 // before it trusts registry.npmjs.com. Node built-ins only.
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const time = (value) => (value ? new Date(value).getTime() : null)
@@ -49,8 +49,15 @@ export const keysMatch = (tuf, api) => {
   return { ok: true }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Node resolves symlinks for import.meta.url but not for argv[1], so compare real paths: a plain
+// comparison would skip the check under a symlinked checkout and exit 0. audit-signatures.sh also
+// requires the success line below rather than trusting the exit code alone.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [tufFile, apiFile] = process.argv.slice(2)
+  if (!tufFile || !apiFile) {
+    console.error('Usage: node scripts/registry-keys-match.mjs <tuf keys.json> <api keys json>')
+    process.exit(1)
+  }
   const result = keysMatch(
     JSON.parse(readFileSync(tufFile, 'utf8')),
     JSON.parse(readFileSync(apiFile, 'utf8')),

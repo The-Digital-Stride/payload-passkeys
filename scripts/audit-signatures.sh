@@ -69,10 +69,11 @@ if [ ! -f "$tuf_keys" ]; then
 fi
 api_keys="$tmp/keys.json"
 if ! curl -fsS "$fallback/-/npm/v1/keys" -o "$api_keys" ||
-  ! node "$(dirname "$0")/registry-keys-match.mjs" "$tuf_keys" "$api_keys"; then
+  ! node "$(dirname "$0")/registry-keys-match.mjs" "$tuf_keys" "$api_keys" |
+  grep -qxF 'Registry keys match the TUF list.'; then
   echo "::error::$fallback's keys couldn't be confirmed against the TUF list. Not falling back."
   exit "$status"
 fi
 
-echo "::warning::npm's CDN served an incomplete attestations copy for ${package:-a package}; verifying everything again through $fallback, whose keys match the TUF list."
+echo "::warning::npm's CDN served an incomplete attestations copy for ${package:-a package}; verifying everything again through $fallback. For this run the signing keys come from $fallback's keys API (checked to match the TUF list), not from TUF directly."
 npm audit signatures --registry "$fallback"
