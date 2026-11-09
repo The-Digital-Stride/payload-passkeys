@@ -8,6 +8,7 @@ import type { Api } from '../shared/api.js'
 import { providerName } from '../../shared/aaguid.js'
 import { ENDPOINTS, MAX_PASSKEY_NAME } from '../../shared/constants.js'
 import { removeOutcome } from '../shared/flows.js'
+import type { Reauthentication } from '../shared/reauthentication.js'
 import { usePasskeysT } from '../shared/usePasskeysT.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -48,6 +49,7 @@ type Props = {
   isOnly: boolean
   onChanged: () => void
   passkey: PublicPasskey
+  reauthentication?: Reauthentication
 }
 
 export const PasskeyRow: React.FC<Props> = ({
@@ -57,8 +59,9 @@ export const PasskeyRow: React.FC<Props> = ({
   isOnly,
   onChanged,
   passkey,
+  reauthentication,
 }) => {
-  const { t } = usePasskeysT()
+  const { t } = usePasskeysT(reauthentication)
   const { openModal } = useModal()
   const id = useId()
   const [editing, setEditing] = useState(false)

@@ -2,6 +2,7 @@
 **/payload-types.ts
 **/*.generated.ts
 **/.next
+**/.next-sign-in-again
 **/dist/**
 **/node_modules
 **/docs/**

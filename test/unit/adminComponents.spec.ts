@@ -16,7 +16,7 @@ const base = (overrides: Partial<Config> = {}): Config =>
   }) as Config
 
 const signIn = {
-  clientProps: { collectionSlug: 'users' },
+  clientProps: { collectionSlug: 'users', reauthentication: 'password' },
   path: '@the-digital-stride/payload-passkeys/client#SignInWithPasskey',
 }
 
@@ -79,7 +79,7 @@ describe('the Passkeys section field', () => {
 
 describe('the passkeys provider', () => {
   const provider = (enrolmentPrompt: boolean, collections = ['users']) => ({
-    clientProps: { collections, enrolmentPrompt },
+    clientProps: { collections, enrolmentPrompt, reauthentication: 'password' },
     path: '@the-digital-stride/payload-passkeys/client#PasskeysProvider',
   })
 

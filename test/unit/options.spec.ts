@@ -24,6 +24,7 @@ describe('resolveOptions defaults', () => {
       logging: { ip: 'truncated' },
       origins: ['https://example.com'],
       rateLimitIsDefault: true,
+      reauthentication: 'password',
       rpID: 'example.com',
       rpName: 'example.com',
       secureCookies: true,
@@ -166,6 +167,25 @@ describe('resolveOptions refuses impossible configs', () => {
     refuses(base(), { limits: { passkeysPerUser: 0 } }, /passkeysPerUser/))
   it('freshSessionMinutes out of range', () =>
     refuses(base(), { freshSessionMinutes: 0 }, /freshSessionMinutes/))
+  it('an unknown reauthentication mode', () => {
+    for (const reauthentication of ['sso', '', null, true]) {
+      expect(() => resolveOptions(base(), { reauthentication: reauthentication as never })).toThrow(
+        new PasskeysConfigError("reauthentication must be 'password' or 'sign-in-again'."),
+      )
+    }
+  })
+})
+
+describe('reauthentication', () => {
+  it("defaults to 'password' and accepts 'sign-in-again'", () => {
+    expect(resolveOptions(base(), {}).reauthentication).toBe('password')
+    expect(resolveOptions(base(), { reauthentication: 'password' }).reauthentication).toBe(
+      'password',
+    )
+    expect(resolveOptions(base(), { reauthentication: 'sign-in-again' }).reauthentication).toBe(
+      'sign-in-again',
+    )
+  })
 })
 
 describe('resolveOptions warnings', () => {

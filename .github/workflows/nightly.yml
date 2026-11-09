@@ -50,7 +50,11 @@ jobs:
           echo "Installed payload $(node -p "require('./node_modules/payload/package.json').version")"
       - name: Contract first, then everything
         run: |
-          pnpm test:int test/int/mintSession.contract.int.spec.ts test/int/reauthenticate.contract.int.spec.ts test/int/revokeSessions.contract.int.spec.ts
+          pnpm test:int \
+            test/int/mintSession.contract.int.spec.ts \
+            test/int/reauthenticate.contract.int.spec.ts \
+            test/int/revokeSessions.contract.int.spec.ts \
+            test/int/signInVerifiedUser.contract.int.spec.ts
           pnpm test:int
 
   report:

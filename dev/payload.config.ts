@@ -8,4 +8,11 @@ if (!process.env.ROOT_DIR) {
   process.env.ROOT_DIR = path.dirname(fileURLToPath(import.meta.url))
 }
 
-export default buildDevConfig({ variant: 'single' })
+// The e2e suite starts a second dev app for SSO sites (playwright.config.ts). Unset, nothing changes.
+export default buildDevConfig({
+  plugin:
+    process.env.PASSKEYS_REAUTHENTICATION === 'sign-in-again'
+      ? { reauthentication: 'sign-in-again' }
+      : {},
+  variant: 'single',
+})

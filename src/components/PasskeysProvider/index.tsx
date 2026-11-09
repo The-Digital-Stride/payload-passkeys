@@ -7,12 +7,14 @@ import '../passkeys.css'
 import { ENDPOINTS } from '../../shared/constants.js'
 import { createApi } from '../shared/api.js'
 import { rememberChoice, shouldOfferEnrolment } from '../shared/enrolmentStorage.js'
+import type { Reauthentication } from '../shared/reauthentication.js'
 import { EnrolmentPrompt } from './EnrolmentPrompt.js'
 
 type Props = {
   children: React.ReactNode
   collections: string[]
   enrolmentPrompt: boolean
+  reauthentication?: Reauthentication
 }
 
 type Offer = { collection: string; userId: number | string }
@@ -30,7 +32,12 @@ const storage = (kind: 'localStorage' | 'sessionStorage'): null | Storage => {
  * Wraps the admin. Offers a passkey after a password sign-in (design 4.4); in phase 2 it also
  * hosts the lock screen.
  */
-export const PasskeysProvider: React.FC<Props> = ({ children, collections, enrolmentPrompt }) => {
+export const PasskeysProvider: React.FC<Props> = ({
+  children,
+  collections,
+  enrolmentPrompt,
+  reauthentication = 'password',
+}) => {
   const { user } = useAuth()
   const { config } = useConfig()
   const [offer, setOffer] = useState<null | Offer>(null)
@@ -98,7 +105,14 @@ export const PasskeysProvider: React.FC<Props> = ({ children, collections, enrol
   return (
     <>
       {children}
-      {current && api ? <EnrolmentPrompt api={api} onDone={done} /> : null}
+      {current && api ? (
+        <EnrolmentPrompt
+          api={api}
+          collectionSlug={current.collection}
+          onDone={done}
+          reauthentication={reauthentication}
+        />
+      ) : null}
     </>
   )
 }

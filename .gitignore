@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .next/
+.next-sign-in-again/
 # Every env file, in any folder, except the committed examples.
 .env*
 !.env.example

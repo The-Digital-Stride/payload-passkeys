@@ -26,6 +26,8 @@ import { createApi } from '../shared/api.js'
 import { PASSKEYS_CHANGED_EVENT } from '../shared/events.js'
 import { registerFlow, syncAcceptedCredentials } from '../shared/flows.js'
 import { usePasswordPrompt } from '../shared/PasswordPrompt.js'
+import type { Reauthentication } from '../shared/reauthentication.js'
+import { useSignInAgainPrompt } from '../shared/SignInAgainPrompt.js'
 import { usePasskeysT } from '../shared/usePasskeysT.js'
 import { PasskeyRow } from './PasskeyRow.js'
 
@@ -46,15 +48,19 @@ const noSubscription = () => () => {}
 const dateLocale = (language: string) => (language === 'en' ? 'en-GB' : language)
 
 /** The Passkeys section on the signed-in user's own account page (design 4.3). */
-export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collectionSlug }) => {
+export const PasskeysManager: React.FC<{
+  collectionSlug: string
+  reauthentication?: Reauthentication
+}> = ({ collectionSlug, reauthentication = 'password' }) => {
   const { config } = useConfig()
   const { setUser } = useAuth()
-  const { language, t } = usePasskeysT()
+  const { language, t } = usePasskeysT(reauthentication)
   const api = useMemo(
     () => createApi(config.routes.api, collectionSlug),
     [config.routes.api, collectionSlug],
   )
   const prompt = usePasswordPrompt('passkeys-password')
+  const signInAgain = useSignInAgainPrompt('passkeys-sign-in-again', collectionSlug)
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   // Assumed true on the server and during hydration, then read from the browser.
   const supported = useSyncExternalStore(noSubscription, browserSupportsWebAuthn, () => true)
@@ -120,11 +126,13 @@ export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collecti
       const result = await registerFlow({
         api,
         askPassword: prompt.ask,
+        askSignInAgain: signInAgain.ask,
         browser,
         onReauthenticated: (body) => {
           prompt.close()
           setUser(body as never)
         },
+        reauthentication,
       })
       if (result.ok) {
         toast.success(t('added'))
@@ -134,6 +142,7 @@ export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collecti
       }
     } finally {
       prompt.close()
+      signInAgain.close()
       setAdding(false)
     }
   }
@@ -183,6 +192,7 @@ export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collecti
               key={String(passkey.id)}
               onChanged={() => void reload()}
               passkey={passkey}
+              reauthentication={reauthentication}
             />
           ))}
         </ul>
@@ -219,6 +229,7 @@ export const PasskeysManager: React.FC<{ collectionSlug: string }> = ({ collecti
         </p>
       ) : null}
       {prompt.element}
+      {signInAgain.element}
     </section>
   )
 }

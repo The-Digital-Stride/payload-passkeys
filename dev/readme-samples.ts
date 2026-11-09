@@ -78,12 +78,12 @@ export const upstashRateLimit: RateLimitHook = async ({ action, key }) =>
 // readme:on-sign-in
 export const withAudit = passkeysPlugin({
   // Runs inside the sign-in transaction, after the beforeLogin hooks. Throw to refuse.
-  onSignIn: ({ collection, passkey, req, user }) => {
+  onSignIn: ({ collection, method, passkey, req, user }) => {
     req.payload.logger.info({
       collection,
       credentialIdPrefix: passkey?.credentialId.slice(0, 8),
       event: 'audit.admin_signed_in',
-      method: 'passkey',
+      method, // 'passkey', or 'sso' when the sign-in came from signInVerifiedUser
       msg: 'audit.admin_signed_in',
       userId: user.id,
     })
@@ -96,5 +96,77 @@ export const i18n: Config['i18n'] = {
   translations: {
     en: { passkeys: { signInWithPasskey: 'Use a passkey' } },
   },
+}
+// readme:end
+
+// readme:sso-option
+export const forSsoAdmins = passkeysPlugin({ reauthentication: 'sign-in-again' })
+// readme:end
+
+// Stands for the host's own OAuth code: it checks `state` and the provider's response, then finds
+// (or creates) the user. Outside the README regions on purpose.
+declare const verifyGoogleCallback: (
+  request: Request,
+) => Promise<{ redirectTo: string; userId: number | string }>
+
+// readme:sso-callback
+// app/api/auth/google/callback/route.ts
+import { signInVerifiedUser } from '@the-digital-stride/payload-passkeys'
+import { getPayload } from 'payload'
+import config from '@payload-config'
+import { NextResponse } from 'next/server.js'
+
+export const GET = async (request: Request) => {
+  // Check the OAuth `state` and the provider's response FIRST. signInVerifiedUser signs in as
+  // whoever you name, so call it only after those checks have passed.
+  // `redirectTo` is the login page's `redirect`, carried through the OAuth `state`.
+  const { redirectTo, userId } = await verifyGoogleCallback(request)
+
+  const payload = await getPayload({ config })
+  const { setCookie } = await signInVerifiedUser({
+    collection: 'users',
+    headers: request.headers, // so beforeLogin, onSignIn and IP logging see the real request
+    payload,
+    userId,
+  })
+  const response = NextResponse.redirect(
+    new URL(/^\/admin(?:[/?#]|$)/.test(redirectTo) ? redirectTo : '/admin', request.url),
+  )
+  // Delete or set any other cookies through response.cookies BEFORE appending: Next rewrites the
+  // whole Set-Cookie header from its own cookie map whenever response.cookies changes.
+  response.cookies.delete('oauth_state')
+  response.headers.append('Set-Cookie', setCookie)
+  return response
+}
+// readme:end
+
+// readme:sso-offboarding
+import type { CollectionAfterChangeHook, CollectionBeforeLoginHook } from 'payload'
+import { UnauthorizedError } from 'payload'
+import { resetPasskeys } from '@the-digital-stride/payload-passkeys'
+
+// Refuse disabled users on every sign-in: SSO and passkeys both run beforeLogin.
+export const refuseDisabled: CollectionBeforeLoginHook = ({ req, user }) => {
+  if (user.disabled) throw new UnauthorizedError(req.t)
+  return user
+}
+
+// And clean up when someone is disabled.
+export const cleanUpOnDisable: CollectionAfterChangeHook = async ({ doc, previousDoc, req }) => {
+  if (doc.disabled && !previousDoc.disabled) {
+    await resetPasskeys({ collection: 'users', id: doc.id, payload: req.payload, req })
+  }
+}
+// readme:end
+
+// readme:sso-wording
+import type { PasskeysTranslations } from '@the-digital-stride/payload-passkeys'
+
+const ssoWording: PasskeysTranslations = {
+  enrolBodySso: 'Next time, use your fingerprint, face or device PIN instead of Google.',
+}
+
+export const ssoI18n: Config['i18n'] = {
+  translations: { en: { passkeys: ssoWording } },
 }
 // readme:end

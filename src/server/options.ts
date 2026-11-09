@@ -1,6 +1,11 @@
 import type { CollectionConfig, Config, IncomingAuthType, PayloadRequest } from 'payload'
 
-import type { OnSignInHook, PasskeysPluginOptions, RateLimitHook } from '../types.js'
+import type {
+  OnSignInHook,
+  PasskeysPluginOptions,
+  RateLimitHook,
+  Reauthentication,
+} from '../types.js'
 
 import { DEFAULT_SLUGS } from '../shared/constants.js'
 import { normaliseOrigin, originMatchesRpID, rpIDProblem } from '../shared/rpid.js'
@@ -26,6 +31,8 @@ export type ResolvedOptions = {
   origins: string[]
   rateLimit: RateLimitHook
   rateLimitIsDefault: boolean
+  /** 'sign-in-again' leaves out the reauth endpoint; the client offers a fresh sign-in instead. */
+  reauthentication: Reauthentication
   rpID: string
   rpName: string
   /** `__Host-` and `Secure` on the browser-key cookies, from the configured origins (review L7). */
@@ -200,6 +207,11 @@ export const resolveOptions = (config: Config, options: PasskeysPluginOptions): 
   if (options.clientIp !== undefined && typeof options.clientIp !== 'function')
     throw new PasskeysConfigError('clientIp must be a function of the request.')
 
+  const reauthentication =
+    options.reauthentication === undefined ? 'password' : options.reauthentication
+  if (reauthentication !== 'password' && reauthentication !== 'sign-in-again')
+    throw new PasskeysConfigError("reauthentication must be 'password' or 'sign-in-again'.")
+
   return {
     clientIp: (req) => clientIp(req, options.clientIp),
     collections,
@@ -212,6 +224,7 @@ export const resolveOptions = (config: Config, options: PasskeysPluginOptions): 
     origins,
     rateLimit: options.rateLimit ?? allowEverything,
     rateLimitIsDefault: !options.rateLimit,
+    reauthentication,
     rpID,
     rpName: options.rpName || titleText(config.admin?.meta?.title) || rpID,
     secureCookies,

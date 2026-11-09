@@ -5,6 +5,7 @@ import type { PasskeysTranslationKey } from '../../translations/en.js'
 import type { Api } from './api.js'
 
 import { ENDPOINTS } from '../../shared/constants.js'
+import type { Reauthentication } from './reauthentication.js'
 
 export type { Api } from './api.js'
 export type Browser = {
@@ -63,20 +64,34 @@ export const signInFlow = async ({
 export const registerFlow = async ({
   api,
   askPassword,
+  askSignInAgain,
   browser,
   name,
   onReauthenticated,
+  reauthentication = 'password',
 }: {
   api: Api
   /** Shows the password prompt; resolves null when dismissed. The argument is an error to show. */
   askPassword: (error?: PasskeysTranslationKey) => Promise<null | string>
+  /**
+   * Shows the sign-in-again dialog (SSO sites, no password to ask for). Resolves false when
+   * dismissed; true means the page is on its way to the login route.
+   */
+  askSignInAgain?: () => Promise<boolean>
   browser: Browser
   name?: string
   /** The session moved (review H1): hand the new body to useAuth().setUser. */
   onReauthenticated: (body: Record<string, unknown>) => void
+  reauthentication?: Reauthentication
 }): Promise<Fail | { ok: true; passkey: Record<string, unknown> }> => {
   let options = await api(ENDPOINTS.registerOptions)
   if (options.status === 403 && options.data.error === 'reauth_required') {
+    if (reauthentication === 'sign-in-again') {
+      // No password to check: the only way to a fresh session is another sign-in, so the page
+      // leaves (or the user cancels). The reauth endpoint is never called.
+      await askSignInAgain?.()
+      return fail('addCancelled')
+    }
     let error: PasskeysTranslationKey | undefined
     for (;;) {
       const password = await askPassword(error)

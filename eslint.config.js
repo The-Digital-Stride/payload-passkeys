@@ -38,6 +38,7 @@ const eslintConfig = [
   {
     ignores: [
       '**/.next/',
+      '**/.next-sign-in-again/',
       '**/dist/',
       '**/node_modules/',
       '**/payload-types.ts',

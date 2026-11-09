@@ -14,17 +14,21 @@ import { safeAdminRedirect } from '../../shared/redirect.js'
 import { createApi } from '../shared/api.js'
 import { signInFlow } from '../shared/flows.js'
 import { useRouter, useSearchParams } from '../shared/navigation.js'
+import type { Reauthentication } from '../shared/reauthentication.js'
 import { usePasskeysT } from '../shared/usePasskeysT.js'
 
 type State = 'checking' | 'hidden' | 'ready' | 'unavailable' | 'working'
 
 /** Under the login form: "or", then "Sign in with a passkey" (design 4.2). */
-export const SignInWithPasskey: React.FC<{ collectionSlug: string }> = ({ collectionSlug }) => {
+export const SignInWithPasskey: React.FC<{
+  collectionSlug: string
+  reauthentication?: Reauthentication
+}> = ({ collectionSlug, reauthentication = 'password' }) => {
   const { config } = useConfig()
   const { setUser } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { t } = usePasskeysT()
+  const { t } = usePasskeysT(reauthentication)
   const api = useMemo(
     () => createApi(config.routes.api, collectionSlug),
     [config.routes.api, collectionSlug],

@@ -10,6 +10,7 @@ export const en = {
     alsoSignOutHint:
       'Ends every other session on this account, including any started with this passkey.',
     busy: 'Passkey sign-in is busy. Try again in a minute, or sign in with your password.',
+    busySso: 'Passkey sign-in is busy. Try again in a minute, or use your usual sign-in.',
     cancel: 'Cancel',
     confirm: 'Confirm',
     confirmPasswordBody: 'For your security, enter your password before adding a passkey.',
@@ -18,6 +19,7 @@ export const en = {
     dontAskAgain: 'Don’t ask again',
     enrolAdd: 'Add a passkey',
     enrolBody: 'Next time, use your fingerprint, face or device PIN instead of your password.',
+    enrolBodySso: 'Next time, use your fingerprint, face or device PIN to sign in.',
     enrolTitle: 'Sign in faster with a passkey',
     genericError: 'Something went wrong. Try again.',
     lastUsed: 'Last used {{date}}',
@@ -34,25 +36,39 @@ export const en = {
     removeFailed: 'The passkey wasn’t removed. Try again.',
     removeKeepsOthers: 'Your other passkeys will still work.',
     removeLast: 'This is your only passkey. You can still sign in with your password.',
+    removeLastSso: 'This is your only passkey. You can still use your usual sign-in.',
     removeTitle: 'Remove “{{name}}”?',
     removed: 'Passkey removed.',
     removedSignOutUnconfirmed:
       'Passkey removed, but other sessions might still be signed in. Change your password, then sign out and check that the new one works. Also check the account’s API key.',
+    removedSignOutUnconfirmedSso:
+      'Passkey removed, but other sessions might still be signed in. Sign out, sign in again and check that works. Also check the account’s API key.',
     rename: 'Rename',
     retry: 'Try again',
     renamed: 'Passkey renamed.',
     save: 'Save',
     sectionDescription:
       'Sign in with your fingerprint, face or device PIN instead of your password. Your password still works.',
+    sectionDescriptionSso:
+      'Sign in with your fingerprint, face or device PIN. Your usual sign-in still works.',
     sectionTitle: 'Passkeys',
+    signInAgain: 'Sign in again',
+    signInAgainBody:
+      'For your security, you can only add a passkey shortly after signing in. Sign in again, then add it straight away.',
+    signInAgainTitle: 'Sign in again first',
     // The browser reports a dismissed prompt and "no passkey for this site" the same way
     // (NotAllowedError), so the copy covers both: someone who has never added one is told how.
     signInCancelled:
       'No passkey was used. If you haven’t added one yet, sign in with your password, then add one from your account.',
+    signInCancelledSso:
+      'No passkey was used. If you haven’t added one yet, use your usual sign-in, then add one from your account.',
     signInFailed: 'That passkey couldn’t be used. Try again or sign in with your password.',
+    signInFailedSso: 'That passkey couldn’t be used. Try again or use your usual sign-in.',
     signingIn: 'Waiting for your passkey…',
     signInUnavailableHere:
       'Passkey sign-in isn’t available at this address. Sign in with your password.',
+    signInUnavailableHereSso:
+      'Passkey sign-in isn’t available at this address. Use your usual sign-in.',
     signInWithPasskey: 'Sign in with a passkey',
     synced: 'Synced',
     thisDeviceOnly: 'This device only',

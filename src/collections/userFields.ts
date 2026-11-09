@@ -1,5 +1,6 @@
 import type { CollectionBeforeDeleteHook, CollectionConfig, Field } from 'payload'
 
+import type { Reauthentication } from '../types.js'
 import type { ResolvedOptions } from '../server/options.js'
 
 import { logEvent } from '../server/logging.js'
@@ -58,13 +59,20 @@ const removePasskeysOfUser =
  * The Passkeys section. The RSC wrapper renders it on the signed-in user's own document only
  * (Verified facts Q2); a `ui` field stores nothing, so adding or removing it changes no schema.
  */
-export const managerField = (collectionSlug: string): Field => ({
+export const managerField = (
+  collectionSlug: string,
+  reauthentication: Reauthentication = 'password',
+): Field => ({
   name: MANAGER_FIELD,
   type: 'ui',
   admin: {
     components: {
       Field: {
-        clientProps: { collectionSlug },
+        // Only sent when it isn't the default; the component assumes 'password'.
+        clientProps:
+          reauthentication === 'password'
+            ? { collectionSlug }
+            : { collectionSlug, reauthentication },
         path: `${PACKAGE_NAME}/rsc#PasskeysManagerField`,
       },
     },
@@ -80,7 +88,7 @@ export const withPasskeyFields = (
   fields: [
     ...collection.fields,
     userHandleField,
-    ...(options.enabled ? [managerField(collection.slug)] : []),
+    ...(options.enabled ? [managerField(collection.slug, options.reauthentication)] : []),
   ],
   hooks: {
     ...collection.hooks,

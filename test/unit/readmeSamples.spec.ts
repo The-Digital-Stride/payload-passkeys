@@ -25,6 +25,10 @@ describe('README code samples', () => {
       'upstash',
       'on-sign-in',
       'translations',
+      'sso-option',
+      'sso-callback',
+      'sso-offboarding',
+      'sso-wording',
     ])
   })
 
