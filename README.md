@@ -13,6 +13,7 @@ The plugin adds:
 - a dismissible "Sign in faster with a passkey" prompt after a password sign-in;
 - three hidden collections (`passkeys`, `passkey-challenges`, `passkey-challenge-uses`) and, on each configured auth collection, a hidden `passkeyUserHandle` field, a `beforeDelete` hook that removes a deleted user's passkeys, and an `afterRefresh` hook that refuses to refresh a session the plugin has signed out;
 - a recovery command, `payload passkeys:reset`.
+- for sites whose admins sign in with Google or another SSO provider: `signInVerifiedUser`, `resetPasskeys`, `refuseSignInUnless` and `safeAdminRedirect` (see [Admins who sign in with SSO](#admins-who-sign-in-with-sso)).
 
 ## Requirements
 
@@ -268,7 +269,9 @@ export const withAudit = passkeysPlugin({
 
 ## Admins who sign in with SSO
 
-If your admins sign in with Google or another SSO provider, they have no password they know. Two things in the default set-up don't suit them: adding a passkey after an older sign-in asks for a password, and a site that wants to start a Payload session from its SSO callback has to keep a password for every user to call `payload.login`. This release covers both.
+If your admins sign in with Google or another SSO provider, they have no password they know. Two things in the default set-up don't suit them: adding a passkey after an older sign-in asks for a password, and a site that wants to start a Payload session from its SSO callback has to keep a password for every user to call `payload.login`. Version 1.1.0 fixed both.
+
+Version 1.2.0 adds two helpers for these sites: `safeAdminRedirect`, which checks the page an admin returns to after the SSO callback, and `refuseSignInUnless`, which stops disabled users signing in by any route ([Offboarding](#offboarding)).
 
 ### Sign in again instead of the password
 
