@@ -1,6 +1,6 @@
 {
   "name": "@the-digital-stride/payload-passkeys",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Passkey (WebAuthn) sign-in for the Payload CMS admin, alongside email and password.",
   "license": "MIT",
   "type": "module",
