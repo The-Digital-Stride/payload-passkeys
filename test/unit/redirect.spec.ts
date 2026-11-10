@@ -37,6 +37,25 @@ describe('safeAdminRedirect', () => {
     expect(safeAdminRedirect('/anything', '/')).toBe('/anything')
   })
 
+  it('trims slashes from either end of the admin route', () => {
+    expect(safeAdminRedirect('/cms/x', '//cms//')).toBe('/cms/x')
+    expect(safeAdminRedirect('/cms/x', 'cms')).toBe('/cms/x')
+    expect(safeAdminRedirect('/x', '///')).toBe('/x')
+    expect(safeAdminRedirect('/x', '')).toBe('/x')
+  })
+
+  it('throws on an admin route that is not a string', () => {
+    expect(() => safeAdminRedirect('/x', ['//evil.test'] as unknown as string)).toThrow(TypeError)
+  })
+
+  // CodeQL js/polynomial-redos: a backtracking trim took about 15 s on this admin route.
+  it('trims an admin route holding a long run of slashes in linear time', () => {
+    const adminRoute = `a${'/'.repeat(100_000)}a`
+    const started = performance.now()
+    expect(safeAdminRedirect('/admin', adminRoute)).toBe(`/${adminRoute}`)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
   // getSafeRedirect refuses an encoded slash after the first; resolving dot segments can bring one
   // there (`/%2e/%2fevil.test` becomes `/%2fevil.test`), so the resolved path is checked again.
   it.each(['/%2fevil.test', '/%2e/%2fevil.test', '/./%2F%2Fevil.test', '/%2e/%2F%2Fevil.test'])(

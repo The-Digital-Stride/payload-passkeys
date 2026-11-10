@@ -1,7 +1,15 @@
 import { getSafeRedirect } from 'payload/shared'
 
+// A loop rather than /^\/+|\/+$/g: that regex backtracks quadratically on a long run of slashes
+// inside the route (CodeQL js/polynomial-redos), and the route now comes from host code.
 const normaliseAdminRoute = (adminRoute: string): string => {
-  const trimmed = adminRoute.replace(/^\/+|\/+$/g, '')
+  // The regex threw on a non-string; keep failing loudly rather than slicing an array.
+  if (typeof adminRoute !== 'string') throw new TypeError('adminRoute must be a string')
+  let start = 0
+  let end = adminRoute.length
+  while (start < end && adminRoute[start] === '/') start++
+  while (end > start && adminRoute[end - 1] === '/') end--
+  const trimmed = adminRoute.slice(start, end)
   return trimmed ? `/${trimmed}` : '/'
 }
 
