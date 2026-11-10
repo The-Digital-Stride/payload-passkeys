@@ -24,6 +24,13 @@ export type DatabaseOptions = {
   mongoIndexes?: boolean
   /** Test only. Use this database name instead of the one in DATABASE_URL (MongoDB). */
   mongoDatabase?: string
+  /** Test only. The most connections the Postgres pool may open (pg's `max`; its default is 10). */
+  postgresPoolMax?: number
+  /**
+   * Test only. Run SQLite in transactions (`transactionOptions: {}`). Off by default, as in
+   * @payloadcms/db-sqlite, which then runs none.
+   */
+  sqliteTransactions?: boolean
 }
 
 const withDatabaseName = (url: string, name: string | undefined): string => {
@@ -37,6 +44,8 @@ export const databaseAdapter = ({
   blocksAsJSON,
   mongoDatabase,
   mongoIndexes = true,
+  postgresPoolMax,
+  sqliteTransactions,
 }: DatabaseOptions = {}) => {
   const url = process.env.DATABASE_URL
   switch (adapterName()) {
@@ -54,6 +63,7 @@ export const databaseAdapter = ({
         migrationDir: path.resolve(dirname, 'migrations/postgres'),
         pool: {
           connectionString: url ?? 'postgres://postgres:postgres@127.0.0.1:5432/payload_passkeys',
+          ...(postgresPoolMax ? { max: postgresPoolMax } : {}),
         },
       })
     case 'sqlite':
@@ -61,6 +71,7 @@ export const databaseAdapter = ({
         ...(blocksAsJSON ? { blocksAsJSON } : {}),
         client: { url: url ?? `file:${path.resolve(dirname, 'dev.db')}` },
         migrationDir: path.resolve(dirname, 'migrations/sqlite'),
+        ...(sqliteTransactions ? { transactionOptions: {} } : {}),
       })
   }
 }

@@ -6,7 +6,7 @@ Guidance for Claude Code in this repository.
 
 `@the-digital-stride/payload-passkeys`: a public, open-source Payload CMS 3 plugin that adds passkey sign-in (Touch ID, Face ID, Windows Hello, Android biometrics or the device PIN, via WebAuthn) to the Payload admin, alongside email and password. It works on any Payload 3 site (`>=3.90 <4`, Node 22+) and any database adapter (MongoDB, Postgres, SQLite). Phase 2 adds an idle lock screen.
 
-**Status (2026-11-06): v1 built, not released.** Every task in the v1 plan is done on branch `v1-passkey-sign-in` (code, tests, CI and release workflows, README, SECURITY.md, the release checklist and the ianhancock.co.uk adoption instructions), except Task 44, which is the developer's dashboard work (`docs/release-setup.md`). Nothing is on GitHub or npm yet. The intended remote is `The-Digital-Stride/payload-passkeys`; the npm organisation `the-digital-stride` still has to be claimed.
+**Status (2026-11-10): 1.1.0 on npm** (`The-Digital-Stride/payload-passkeys`; releases go through Changesets and `docs/release-setup.md`). 1.1.0 added SSO support (`reauthentication: 'sign-in-again'`, `signInVerifiedUser`, `resetPasskeys`). tds-website runs it with Google sign-in. 1.2.0 is planned in `docs/plans/2026-11-10-release-1-2-sso-helpers.md`: it exports `safeAdminRedirect` and `refuseSignInUnless`, and fixes the README from that site's experience.
 
 ## Read before working
 

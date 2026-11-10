@@ -1,3 +1,5 @@
 export { PasskeysManager } from '../components/PasskeysManager/index.js'
 export { PasskeysProvider } from '../components/PasskeysProvider/index.js'
 export { SignInWithPasskey } from '../components/SignInWithPasskey/index.js'
+export { safeAdminRedirect } from '../shared/redirect.js'
+export type { SafeAdminRedirectOptions } from '../shared/redirect.js'

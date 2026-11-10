@@ -165,12 +165,17 @@ With more than one proxy, or a proxy that puts the address in another header, pa
 import type { RateLimitHook } from '@the-digital-stride/payload-passkeys'
 import { checkRateLimit } from '@vercel/firewall'
 
-export const vercelRateLimit: RateLimitHook = async ({ key, req }) => {
+export const vercelRateLimit: RateLimitHook = async ({ action, key, req }) => {
   // The firewall exists only on Vercel; allow everything in local development.
   if (process.env.VERCEL !== '1') return true
+  // `status` is anonymous, read-only and runs on every login-page view: don't count it.
+  if (action === 'status') return true
   const { error, rateLimited } = await checkRateLimit('passkeys', {
     headers: req.headers,
     rateLimitKey: key,
+    // The SDK has no default timeout, so a slow Firewall would hang the ceremony. On timeout it
+    // rejects, and the plugin answers 429.
+    timeout: 3000,
   })
   // error 'not-found' means no rule has the ID "passkeys": refuse rather than run unlimited.
   return !rateLimited && !error
@@ -178,6 +183,11 @@ export const vercelRateLimit: RateLimitHook = async ({ key, req }) => {
 ```
 
 Then, in the Vercel dashboard, open the project's **Firewall**, add a custom rule whose condition is the `@vercel/firewall` rate limit ID `passkeys`, and give it a rate-limit action, for example 20 requests per 60 seconds. The `rateLimitKey` decides what each count is per.
+
+Two details of the sample:
+
+- **`status` is skipped.** It is anonymous, read-only and runs on every login-page view, so counting it would spend your limit on page loads.
+- **`timeout: 3000`.** `@vercel/firewall` has no default timeout, so a slow Firewall would hang the ceremony. On timeout the call rejects, the hook throws, and the plugin answers 429 (the hook fails closed). A visitor sees a refused request, not a spinner.
 
 **Upstash** with `@upstash/ratelimit`:
 
@@ -297,7 +307,7 @@ export const ssoI18n: Config['i18n'] = {
 
 ```ts
 // app/api/auth/google/callback/route.ts
-import { signInVerifiedUser } from '@the-digital-stride/payload-passkeys'
+import { safeAdminRedirect, signInVerifiedUser } from '@the-digital-stride/payload-passkeys'
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { NextResponse } from 'next/server.js'
@@ -305,7 +315,9 @@ import { NextResponse } from 'next/server.js'
 export const GET = async (request: Request) => {
   // Check the OAuth `state` and the provider's response FIRST. signInVerifiedUser signs in as
   // whoever you name, so call it only after those checks have passed.
-  // `redirectTo` is the login page's `redirect`, carried through the OAuth `state`.
+  // `redirectTo` is the login page's `redirect`, carried in the state cookie, so it is
+  // attacker-controlled until safeAdminRedirect has checked it. Check `hd` and `email_verified`
+  // from the provider's response in here too.
   const { redirectTo, userId } = await verifyGoogleCallback(request)
 
   const payload = await getPayload({ config })
@@ -316,11 +328,12 @@ export const GET = async (request: Request) => {
     userId,
   })
   const response = NextResponse.redirect(
-    new URL(/^\/admin(?:[/?#]|$)/.test(redirectTo) ? redirectTo : '/admin', request.url),
+    new URL(safeAdminRedirect(redirectTo, '/admin', { maxLength: 1500 }), request.url),
   )
   // Delete or set any other cookies through response.cookies BEFORE appending: Next rewrites the
   // whole Set-Cookie header from its own cookie map whenever response.cookies changes.
-  response.cookies.delete('oauth_state')
+  // Use the path the cookie was set on: a bare name writes Path=/ and won't clear a narrower cookie.
+  response.cookies.delete({ name: 'oauth_state', path: '/api/auth/google' })
   response.headers.append('Set-Cookie', setCookie)
   return response
 }
@@ -331,42 +344,68 @@ Things to know:
 - **Find the user by the provider's stable ID.** Match on the provider's subject (`sub`, or `oid` with the tenant for Microsoft Entra), not on an email address the person can set in their provider profile. If you must match on email, require `email_verified` from a provider that owns that domain. Otherwise someone could set their provider email to an admin's address and be signed in as that admin.
 - **Pass `headers`.** Without them, `beforeLogin`, `onSignIn` and the IP in logs see an empty request.
 - **Cookie order.** Delete or set your other cookies through `response.cookies` before appending `setCookie`. Next rewrites the whole `Set-Cookie` header from its own cookie map whenever `response.cookies` changes, which would drop one appended earlier.
-- **Cookie settings.** The cookie follows the collection's `auth.cookies` settings, and Payload's default is `secure: false`. Set `secure: true` (and `sameSite`) in production.
-- **Return to the right page.** The sign-in-again dialog sends the admin to the login page with `?redirect=<admin path>`. Carry that `redirect` through the OAuth `state` (or a cookie), and send the admin back to it only after checking it is a same-site admin path, as the sample does. Otherwise they lose their place and the "add it straight away" step doesn't happen.
+- **Cookie settings.** The cookie follows the collection's `auth.cookies` settings, and Payload's default is `secure: false`. Production needs `auth.cookies.secure: true` (and your choice of `sameSite`).
+- **Return to the right page.** The sign-in-again dialog sends the admin to the login page with `?redirect=<admin path>`. Carry that `redirect` through the OAuth `state` (or a cookie), and send the admin back to it only after `safeAdminRedirect` has checked it, as the sample does. Otherwise they lose their place and the "add it straight away" step doesn't happen. `safeAdminRedirect(redirectTo, adminRoute = '/admin', { maxLength? })` is exported from the package's main entry and from `@the-digital-stride/payload-passkeys/client`, so a login button can use it too. It returns the admin route unless the value is a path inside the admin. It also refuses a path containing `%2f`, `%5c` or `%2e` in any case, and it doesn't decode twice. By default it sets no length limit; pass `maxLength` when the path travels in a cookie, which counts the input as given and the result percent-encoded, so non-ASCII paths reach the limit sooner. The `#hash` counts.
+- **The `state` cookie.** Compare `state` in constant time, and give the cookie these controls: `HttpOnly`, `SameSite=Lax`, `Secure` in production, a short `maxAge`, and deletion on use. Delete it with the same `path` it was set on: a bare name writes `Path=/` and won't clear a narrower cookie, as the sample shows.
+- **Google: check the claims, not the URL.** The `hd` parameter on the authorisation URL is only a hint to the account picker. Check the returned ID token's `hd` claim against your domain, and require `email_verified`, on the server. Don't rely on the URL.
 - **Hooks see a local request.** `beforeLogin`, `onSignIn` and `afterLogin` run with `req.payloadAPI === 'local'` and the default locale and language, unlike a REST login. A hook that branches on `payloadAPI` should allow for that; `onSignIn`'s `method: 'sso'` is the reliable signal.
 - **Errors.** It throws a plain `Error` when `collection` isn't one of the plugin's collections, and `SignInRefused` (reason `user_missing`) when the user doesn't exist, both before anything is written. It also throws when the user is unverified (where the collection uses `auth.verify`), or when a `beforeLogin` hook or `onSignIn` refuses; nothing is left behind in those cases. Hosts can `import { SignInRefused }` from the package and check `error.reason`.
 - **It works with `enabled: false`.** Turning passkeys off never breaks an SSO sign-in that uses it.
-- **Rate limits.** `rateLimit` hooks may skip `action === 'status'`: it is anonymous, read-only and runs on every login-page view.
 
 ### Offboarding
 
-A `beforeLogin` hook that refuses disabled users covers SSO and passkey sign-ins alike. `resetPasskeys` removes a leaver's passkeys and ends all their sessions. Pass the hook's `req` so the removal joins its transaction:
+`refuseSignInUnless` makes a `beforeLogin` hook that refuses users your check rejects. It covers Payload's own login, passkey sign-in and `signInVerifiedUser`, because all of them run the collection's `beforeLogin` hooks, and so does Payload's reset-password flow. `resetPasskeys` removes a leaver's passkeys and ends all their sessions. Pass the hook's `req` so the removal joins its transaction:
 
 ```ts
-import type { CollectionAfterChangeHook, CollectionBeforeLoginHook } from 'payload'
-import { UnauthorizedError } from 'payload'
-import { resetPasskeys } from '@the-digital-stride/payload-passkeys'
+import type { CollectionAfterChangeHook, CollectionAfterReadHook } from 'payload'
+import { refuseSignInUnless, resetPasskeys } from '@the-digital-stride/payload-passkeys'
 
-// Refuse disabled users on every sign-in: SSO and passkeys both run beforeLogin.
-export const refuseDisabled: CollectionBeforeLoginHook = ({ req, user }) => {
-  if (user.disabled) throw new UnauthorizedError(req.t)
-  return user
-}
+// Refuse disabled users on every sign-in: Payload's login, passkeys and SSO all run beforeLogin.
+export const refuseDisabled = refuseSignInUnless((user) => !user.disabled)
 
-// And clean up when someone is disabled.
-export const cleanUpOnDisable: CollectionAfterChangeHook = async ({ doc, previousDoc, req }) => {
-  if (doc.disabled && !previousDoc.disabled) {
+// Clean up whenever a save sets `disabled`, not only when it changes. `data` holds the value when
+// the save sent it; `doc` lacks unselected fields after an update made with `select`.
+export const cleanUpOnDisable: CollectionAfterChangeHook = async ({ data, doc, req }) => {
+  const disabled = 'disabled' in data ? data.disabled : doc.disabled
+  if (disabled) {
     await resetPasskeys({ collection: 'users', id: doc.id, payload: req.payload, req })
   }
 }
+
+// End the live sessions of a disabled user without deleting them. Payload's JWT strategy refuses a
+// token whose session isn't in `user.sessions`. Reversible, and `disabled` must not be `hidden`.
+export const hideSessionsOfDisabled: CollectionAfterReadHook = ({ doc }) =>
+  doc.disabled ? { ...doc, sessions: [] } : doc
 ```
+
+`refuseSignInUnless(isAllowed, { recheckTimeoutMs? })` takes a function that returns `true` to allow the sign-in (it may be async). The hook calls it twice: on the user Payload read, then on the user's committed record, read again outside the sign-in's transaction. Either `false` refuses with Payload's `UnauthorizedError`. So does a missing user (deleted, or in the trash where the collection has `trash`) and a throw, from your function or the read: the hook fails closed. The re-read gives up after `recheckTimeoutMs` (default 5,000) and refuses.
+
+`isAllowed` gets the raw stored record: no `afterRead` hooks, no virtual fields, plus `collection` (the slug). It never gets `hash`, `salt`, `sessions` or Payload's other internal auth fields. Your own fields are all there, including `hidden` ones and ones your access rules would otherwise withhold, so don't log the whole argument. Test a field you store, such as `disabled`.
 
 `resetPasskeys({ collection, email?, id?, payload, req? })` returns `{ removedPasskeys, removedSessions, userId }`. Trade-off: inside your transaction a write conflict is not retried, so a save that races the user's own token refresh fails and has to be made again. Without `req` it runs in its own transaction and retries, as the command line does.
 
+The `afterChange` hook runs the clean-up whenever the save sets `disabled` to true, not only when it changes, so saving a disabled user again repeats a clean-up that failed. Which adapters give `req` a transaction:
+
+- Postgres: yes, by default.
+- SQLite: only with `transactionOptions` set.
+- MongoDB: only on a replica set.
+
+Where there is none, `req` gives no rollback, and a failed clean-up is retried by saving again.
+
+**Ending live sessions without deleting them.** The `afterRead` hook in the sample empties `sessions` for a disabled user. Payload's JWT strategy (`payload/dist/auth/strategies/jwt.js`) refuses a token whose session isn't in `user.sessions`, so every live session stops working. Two caveats:
+
+- **It is reversible.** Enable the user again and their unexpired sessions come back, unless `resetPasskeys` ran, which is why the sample pairs them.
+- **The field it reads must not be `hidden: true`.** Payload strips hidden fields before collection `afterRead` hooks run, so every user would look active.
+
 Two Payload behaviours to allow for:
 
-- **`select`:** an update made with `select` strips unselected fields from `doc` in `afterChange`. Read the new value from `data` when it's there (`'disabled' in data ? data.disabled : doc.disabled`).
-- **Sign-in at the same moment:** when Payload adds a session (its own login, or a passkey or SSO sign-in), it writes back the whole user record it read moments earlier. A sign-in that lands within milliseconds of the save can therefore restore the old `disabled` value. After disabling someone, reload the user and check that the change held.
+- **`select`:** an update made with `select` strips unselected fields from `doc` in `afterChange`. The sample reads the new value from `data` when it's there for that reason.
+- **Sign-in at the same moment:** when Payload adds a session (its own login, or a passkey or SSO sign-in), it writes back the whole user record it read moments earlier, before `beforeLogin` runs. A disable saved between that read and the write is overwritten with the old value. What `refuseSignInUnless` does about that depends on transactions:
+  - **With transactions** (the list above), the stale write isn't committed yet. The re-read sees the saved `disabled`, the hook refuses, and the rollback undoes the stale write: a disable saved before the sign-in's session write is refused and stays saved. A disable saved after that write, in the moment before the sign-in commits, lets that sign-in through. On Postgres the save waits for the sign-in to commit and is then kept, and the `afterRead` recipe above ends the new session on the next request, which is why the two go together. On MongoDB that save fails at once with a write conflict and has to be made again.
+  - **Postgres read replicas:** the re-read goes to the primary because the session write just happened (Payload's `readReplicasAfterWriteInterval`, 2 seconds by default). Keep `isAllowed` fast, and don't lower that interval.
+  - **Without transactions**, the stale write is already committed when the hook runs, so the re-read sees it. Only a disable made before the sign-in started is caught. A disable that lands in the window can be undone, and the user stays signed in. Login attempts and any lockout are also cleared before the hook runs, and a refused password reset has already saved the new password and used up the token. After disabling someone, reload the user and check that the change held.
+  - **In production, use transactions** (a MongoDB replica set, Postgres, or SQLite with `transactionOptions`).
+  - **Postgres needs a pool of at least 3.** Payload's Postgres adapter keeps one connection for itself, the sign-in's transaction holds a second and the re-read needs a third. With `pool.max: 2`, or a full pool, the re-read waits until `recheckTimeoutMs` and then refuses the sign-in.
 
 ## Recovery
 
@@ -437,6 +476,38 @@ export const i18n: Config['i18n'] = {
   },
 }
 ```
+
+## Styling
+
+The sign-in block (`.passkeys-sign-in`) fills Payload's login column. To match your other buttons, scope a `max-width` to it:
+
+```css
+.passkeys-sign-in {
+  max-width: 20rem;
+}
+```
+
+## Testing
+
+Test passkeys in Chromium with a virtual authenticator, through the Chrome DevTools Protocol. In Playwright:
+
+```js
+const cdp = await page.context().newCDPSession(page)
+await cdp.send('WebAuthn.enable')
+await cdp.send('WebAuthn.addVirtualAuthenticator', {
+  options: {
+    automaticPresenceSimulation: true,
+    hasResidentKey: true,
+    hasUserVerification: true,
+    isUserVerified: true,
+    protocol: 'ctap2',
+    transport: 'internal',
+  },
+})
+```
+
+- Create the authenticator in the page that runs the ceremony. A new page or tab doesn't have it.
+- The test's origin must be in `origins`, and its host the RP ID or under it. `http://localhost:3000` works.
 
 ## Verifying this package
 
