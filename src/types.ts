@@ -142,3 +142,19 @@ export type SignInVerifiedUserResult = {
  * Payload's `i18n.translations`, for example `{ en: { passkeys: overrides } }`.
  */
 export type PasskeysTranslations = Partial<Record<PasskeysTranslationKey, string>>
+
+/**
+ * refuseSignInUnless's predicate. It receives the user's stored record without `hash`, `salt`,
+ * `sessions` or the plugin's other secret fields, with `collection` (the auth collection's slug)
+ * added: the raw record, so depth 0, no afterRead hooks and no virtual fields. Return true to
+ * allow the sign-in; anything else, or a throw, refuses it.
+ */
+export type SignInAllowed = (user: Record<string, unknown>) => boolean | Promise<boolean>
+
+export type RefuseSignInUnlessOptions = {
+  /**
+   * How long the re-read of the stored user may take, in milliseconds, before the sign-in is
+   * refused. Default 5000. On Postgres the re-read needs a second pool connection.
+   */
+  recheckTimeoutMs?: number
+}

@@ -20,8 +20,11 @@ import { PACKAGE_NAME } from './shared/constants.js'
 import { withPasskeysTranslations } from './translations/index.js'
 
 export { SignInRefused } from './server/mintSession.js'
+export { refuseSignInUnless } from './server/refuseSignInUnless.js'
 export { resetPasskeys } from './server/reset.js'
 export { signInVerifiedUser } from './server/signInVerifiedUser.js'
+export { safeAdminRedirect } from './shared/redirect.js'
+export type { SafeAdminRedirectOptions } from './shared/redirect.js'
 export type * from './types.js'
 
 type AdminComponents = NonNullable<NonNullable<Config['admin']>['components']>

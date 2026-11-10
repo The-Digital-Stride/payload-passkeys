@@ -86,6 +86,10 @@ const customers: CollectionConfig = {
 /** Payload 3.90 exports the strategy's parts but not `AuthStrategy` itself. */
 export type AuthStrategy = NonNullable<IncomingAuthType['strategies']>[number]
 
+/** Test only: the users collection with trash (soft delete) on. */
+const withTrash = (collection: CollectionConfig, trash: boolean | undefined) =>
+  trash ? { ...collection, trash: true } : collection
+
 /** Test only: the users collection with extra auth strategies, which run before Payload's own. */
 const withStrategies = (collection: CollectionConfig, strategies: AuthStrategy[] | undefined) =>
   strategies?.length
@@ -102,20 +106,23 @@ export const buildDevConfig = ({
   authStrategies,
   db = {},
   plugin = {},
+  trash,
   variant = 'single',
 }: {
   /** Test only. Custom strategies on the users collection (test/configs/customStrategy.ts). */
   authStrategies?: AuthStrategy[]
   db?: DatabaseOptions
   plugin?: PasskeysPluginOptions
+  /** Test only. Trash (soft delete) on the users collection (test/configs/refuseSignInUnless.ts). */
+  trash?: boolean
   variant?: 'multi' | 'single'
 } = {}) =>
   buildConfig({
     admin: { importMap: { baseDir: path.resolve(dirname) }, user: 'users' },
     collections:
       variant === 'multi'
-        ? [withStrategies(users, authStrategies), customers]
-        : [withStrategies(users, authStrategies)],
+        ? [withStrategies(withTrash(users, trash), authStrategies), customers]
+        : [withStrategies(withTrash(users, trash), authStrategies)],
     // 127.0.0.1 stands in for a preview host: same app, not under the RP ID (Tasks 21 and 36).
     csrf: [SERVER_URL, 'http://127.0.0.1:3000'],
     db: databaseAdapter(db),

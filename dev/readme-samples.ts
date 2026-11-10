@@ -49,12 +49,17 @@ export const csrf: Config['csrf'] = [
 import type { RateLimitHook } from '@the-digital-stride/payload-passkeys'
 import { checkRateLimit } from '@vercel/firewall'
 
-export const vercelRateLimit: RateLimitHook = async ({ key, req }) => {
+export const vercelRateLimit: RateLimitHook = async ({ action, key, req }) => {
   // The firewall exists only on Vercel; allow everything in local development.
   if (process.env.VERCEL !== '1') return true
+  // `status` is anonymous, read-only and runs on every login-page view: don't count it.
+  if (action === 'status') return true
   const { error, rateLimited } = await checkRateLimit('passkeys', {
     headers: req.headers,
     rateLimitKey: key,
+    // The SDK has no default timeout, so a slow Firewall would hang the ceremony. On timeout it
+    // rejects, and the plugin answers 429.
+    timeout: 3000,
   })
   // error 'not-found' means no rule has the ID "passkeys": refuse rather than run unlimited.
   return !rateLimited && !error
@@ -111,7 +116,7 @@ declare const verifyGoogleCallback: (
 
 // readme:sso-callback
 // app/api/auth/google/callback/route.ts
-import { signInVerifiedUser } from '@the-digital-stride/payload-passkeys'
+import { safeAdminRedirect, signInVerifiedUser } from '@the-digital-stride/payload-passkeys'
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { NextResponse } from 'next/server.js'
@@ -119,7 +124,9 @@ import { NextResponse } from 'next/server.js'
 export const GET = async (request: Request) => {
   // Check the OAuth `state` and the provider's response FIRST. signInVerifiedUser signs in as
   // whoever you name, so call it only after those checks have passed.
-  // `redirectTo` is the login page's `redirect`, carried through the OAuth `state`.
+  // `redirectTo` is the login page's `redirect`, carried in the state cookie, so it is
+  // attacker-controlled until safeAdminRedirect has checked it. Check `hd` and `email_verified`
+  // from the provider's response in here too.
   const { redirectTo, userId } = await verifyGoogleCallback(request)
 
   const payload = await getPayload({ config })
@@ -130,33 +137,37 @@ export const GET = async (request: Request) => {
     userId,
   })
   const response = NextResponse.redirect(
-    new URL(/^\/admin(?:[/?#]|$)/.test(redirectTo) ? redirectTo : '/admin', request.url),
+    new URL(safeAdminRedirect(redirectTo, '/admin', { maxLength: 1500 }), request.url),
   )
   // Delete or set any other cookies through response.cookies BEFORE appending: Next rewrites the
   // whole Set-Cookie header from its own cookie map whenever response.cookies changes.
-  response.cookies.delete('oauth_state')
+  // Use the path the cookie was set on: a bare name writes Path=/ and won't clear a narrower cookie.
+  response.cookies.delete({ name: 'oauth_state', path: '/api/auth/google' })
   response.headers.append('Set-Cookie', setCookie)
   return response
 }
 // readme:end
 
 // readme:sso-offboarding
-import type { CollectionAfterChangeHook, CollectionBeforeLoginHook } from 'payload'
-import { UnauthorizedError } from 'payload'
-import { resetPasskeys } from '@the-digital-stride/payload-passkeys'
+import type { CollectionAfterChangeHook, CollectionAfterReadHook } from 'payload'
+import { refuseSignInUnless, resetPasskeys } from '@the-digital-stride/payload-passkeys'
 
-// Refuse disabled users on every sign-in: SSO and passkeys both run beforeLogin.
-export const refuseDisabled: CollectionBeforeLoginHook = ({ req, user }) => {
-  if (user.disabled) throw new UnauthorizedError(req.t)
-  return user
-}
+// Refuse disabled users on every sign-in: Payload's login, passkeys and SSO all run beforeLogin.
+export const refuseDisabled = refuseSignInUnless((user) => !user.disabled)
 
-// And clean up when someone is disabled.
-export const cleanUpOnDisable: CollectionAfterChangeHook = async ({ doc, previousDoc, req }) => {
-  if (doc.disabled && !previousDoc.disabled) {
+// Clean up whenever a save sets `disabled`, not only when it changes. `data` holds the value when
+// the save sent it; `doc` lacks unselected fields after an update made with `select`.
+export const cleanUpOnDisable: CollectionAfterChangeHook = async ({ data, doc, req }) => {
+  const disabled = 'disabled' in data ? data.disabled : doc.disabled
+  if (disabled) {
     await resetPasskeys({ collection: 'users', id: doc.id, payload: req.payload, req })
   }
 }
+
+// End the live sessions of a disabled user without deleting them. Payload's JWT strategy refuses a
+// token whose session isn't in `user.sessions`. Reversible, and `disabled` must not be `hidden`.
+export const hideSessionsOfDisabled: CollectionAfterReadHook = ({ doc }) =>
+  doc.disabled ? { ...doc, sessions: [] } : doc
 // readme:end
 
 // readme:sso-wording

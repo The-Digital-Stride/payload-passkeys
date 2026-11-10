@@ -2,7 +2,7 @@
 
 Instructions for a later session working in `/Users/ianhancock/My Repos/ianhancock`. They are self-contained: you don't need this repository's plan to follow them, but `README.md` here is the plugin's user guide and worth reading first.
 
-Written 2026-11-06 for `@the-digital-stride/payload-passkeys` as built on the `v1-passkey-sign-in` branch (plan Task 45). The package isn't on npm yet; don't start until a release (a `0.x` or a release candidate) is published.
+Written 2026-11-06 for `@the-digital-stride/payload-passkeys`, updated 2026-11-10 for 1.2.0, which is on npm.
 
 ## Rules for that session
 
@@ -36,7 +36,7 @@ Follow that repository's `CLAUDE.md`. In particular:
 
 - The Vercel project's Node version is 22 or later (Settings → Build and Deployment). If the site later moves to Payload 3.92 or later, Payload itself needs Node `^22.23.4` or `>=24.22.1`.
 - Change `engines.node` in `package.json` to `>=22.12.0`.
-- Install the exact version: `pnpm add -E @the-digital-stride/payload-passkeys@<version>`.
+- Install the exact version: `pnpm add -E @the-digital-stride/payload-passkeys@1.2.0`.
 - If `pnpm-workspace.yaml` sets `minimumReleaseAge`, the release must be older than that, or be listed in `minimumReleaseAgeExclude`.
 
 ### 2. Set `csrf` before anything else
@@ -62,12 +62,17 @@ import { passkeysPlugin } from '@the-digital-stride/payload-passkeys'
 import type { RateLimitHook } from '@the-digital-stride/payload-passkeys'
 import { checkRateLimit } from '@vercel/firewall'
 
-const rateLimit: RateLimitHook = async ({ key, req }) => {
+const rateLimit: RateLimitHook = async ({ action, key, req }) => {
   // The firewall exists only on Vercel; allow everything in local development.
   if (process.env.VERCEL !== '1') return true
+  // `status` is anonymous, read-only and runs on every login-page view: don't count it.
+  if (action === 'status') return true
   const { error, rateLimited } = await checkRateLimit('passkeys', {
     headers: req.headers,
     rateLimitKey: key,
+    // No default timeout: a slow Firewall would hang the ceremony. A timeout rejects and the
+    // plugin answers 429.
+    timeout: 3000,
   })
   // error 'not-found' means no rule has the ID "passkeys": refuse rather than run unlimited.
   return !rateLimited && !error
@@ -85,6 +90,7 @@ passkeysPlugin({
 - `rpID` and `origins` must be explicit because `serverURL` isn't set: without them the plugin refuses to start. If production is also served from a second address (for example `www.`), add that origin too; every origin must be the RP ID or under it.
 - In production they resolve to the production domain. On preview builds they also resolve to the production domain (`VERCEL_PROJECT_PRODUCTION_URL`), so `*.vercel.app` previews show password sign-in only, with a short note in place of the button. That is by design.
 - Locally they resolve to `localhost:3100`. Because local development shares the Atlas database, a passkey made locally is stored with RP ID `localhost` and shows as "Made for localhost" in the Passkeys section on the live site. Say so in the PR.
+- Production needs `auth.cookies.secure: true` on the `users` collection: Payload's default is `false`, and the cookie follows that setting.
 - Add `@vercel/firewall` as an exact dependency (`pnpm add -E @vercel/firewall`). Ian creates a Vercel WAF rule with the `@vercel/firewall` rate limit ID `passkeys` and a rate-limit action in the dashboard. Ask him once with AskUserQuestion: it is a dashboard step only he can take. Until the rule exists, the hook above refuses passkey requests (password sign-in is unaffected); without any hook the plugin logs a production warning instead.
 
 ### 4. Generate
@@ -111,13 +117,16 @@ In that repository's `CLAUDE.md`, under "Payload config", add a bullet covering:
 
 - Ask Ian to restart his dev server.
 - On `http://localhost:3100/admin`, sign in with the password. Expect the "Sign in faster with a passkey" prompt. Add a passkey (Touch ID), sign out, and sign in with **Sign in with a passkey**.
-- Add `tests/e2e/passkeys.e2e.spec.ts`. It uses its own throwaway user `passkeys-e2e@payloadcms.com` (that repository's convention: one user per spec file, created and deleted by the spec) and a CDP virtual authenticator, as in this repository's `test/e2e/passkeys.e2e.spec.ts` and `test/e2e/helpers.ts`. Cover: enrol, sign out, sign in with the button, remove. `afterAll` deletes the user; the plugin removes their passkeys with them.
+- Add `tests/e2e/passkeys.e2e.spec.ts`. Create the virtual authenticator in the page that runs the ceremony (a new page doesn't have it), and keep the test's origin in `origins` (here `getServerSideURL()`, which is `http://localhost:3100` locally). It uses its own throwaway user `passkeys-e2e@payloadcms.com` (that repository's convention: one user per spec file, created and deleted by the spec) and a CDP virtual authenticator, as in this repository's `test/e2e/passkeys.e2e.spec.ts` and `test/e2e/helpers.ts`. Cover: enrol, sign out, sign in with the button, remove. `afterAll` deletes the user; the plugin removes their passkeys with them.
 - Run `pnpm lint`, `pnpm exec tsc --noEmit`, `pnpm test:int` and `pnpm test:e2e tests/e2e/passkeys.e2e.spec.ts`, after checking what owns port 3100.
 
-### 7. Ship
+### 7. Offboarding
+
+Follow the README's "Offboarding" section: `refuseSignInUnless` to refuse disabled users, and `resetPasskeys` when someone is disabled. Ask Ian whether the site has a field that marks leavers before adding it. The site's database is MongoDB, which runs transactions only on a replica set (Atlas is one), so the README's guarantees for a disable that races a sign-in apply.
+
+### 8. Ship
 
 - Commit on the branch; Ian pushes.
 - On the preview deployment, check that password sign-in works and that the note shows in place of the button.
 - After the merge, check production: add a passkey and sign in with it.
 - Run `pnpm payload passkeys:reset --collection users --email <throwaway user's email>` once against a throwaway user, to prove recovery works on Atlas.
-- Keep the site on the plugin's `0.x` for two weeks before 1.0.0 (the plan's pre-1.0 checklist).
